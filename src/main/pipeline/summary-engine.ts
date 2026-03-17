@@ -22,6 +22,7 @@ export interface SummaryState {
   statements: string[]
   questions: string[]
   followUpQuestions: FollowUpQuestion[]
+  documentType?: string
 }
 
 const SUMMARY_PROMPT = `You are a meeting/session observer AI analyzing a live discussion.

@@ -1,6 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import path from 'path'
 import { initializeHandlers } from './ipc/handlers'
+import { initDatabase, closeDatabase } from './db/client'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -19,7 +20,7 @@ function createWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 600,
-    title: 'meetsense — Desktop Observer',
+    title: 'MeetSense — Conversation Intelligence',
     backgroundColor: '#0a0a0f',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),
@@ -39,9 +40,13 @@ function createWindow() {
   }
 }
 
-app.whenReady().then(createWindow)
+app.whenReady().then(async () => {
+  await initDatabase()
+  createWindow()
+})
 
-app.on('window-all-closed', () => {
+app.on('window-all-closed', async () => {
+  await closeDatabase()
   app.quit()
 })
 

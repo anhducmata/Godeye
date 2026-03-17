@@ -10,6 +10,12 @@ import crypto from 'crypto'
 import path from 'path'
 import os from 'os'
 import { processPostMeeting } from '../pipeline/post-meeting'
+import { createSession, updateSession, listSessions, getSession, deleteSession, saveTranscripts, saveSummary, getSessionTranscripts } from '../db/sessions'
+import { createTag, listTags, deleteTag, tagSession, untagSession, getSessionTags } from '../db/tags'
+import { createSpeakerProfile, listSpeakerProfiles, updateSpeakerProfile, assignSpeakerToSession, getSessionSpeakers } from '../db/speakers'
+import { uploadSessionAudio, uploadSessionTranscript, uploadSessionSummary } from '../storage/s3-client'
+import { uploadSessionToVectorStore, searchKnowledge } from '../rag/vector-store'
+import { queueFinetuneData } from '../finetune/trainer'
 
 /**
  * Central IPC handler registry.
@@ -32,6 +38,7 @@ let screenCaptureEnabled = false
 let webmStream: fs.WriteStream | null = null
 export let sessionAudioPath: string | null = null
 let webmBytesWritten = 0
+let currentSessionId: string | null = null
 
 /** Safe IPC send — ignores errors when the renderer frame is momentarily unavailable */
 function safeSend(channel: string, data?: any) {
@@ -211,6 +218,15 @@ export function initializeHandlers(window: BrowserWindow) {
     safeSend('start-audio-capture', audioCapturer.getConfig())
 
     console.log('[IPC] ✅ Capture session started (audio=' + config.systemAudio + ', mic=' + config.microphone + ', screen=' + screenCaptureEnabled + ')')
+
+    // Create session in PostgreSQL
+    try {
+      currentSessionId = await createSession()
+      console.log(`[IPC] DB session created: ${currentSessionId}`)
+    } catch (err) {
+      console.error('[IPC] Failed to create DB session:', err)
+    }
+
     return { success: true }
   })
 
@@ -247,12 +263,94 @@ export function initializeHandlers(window: BrowserWindow) {
       if (apiKey && sessionAudioPath) {
         // Notify renderer that post-meeting processing is starting
         safeSend('post-meeting-status', { processing: true })
-        // Run in background
-        processPostMeeting(sessionAudioPath, apiKey, summaryEngine).then((finalSummary) => {
+
+        const audioPath = sessionAudioPath
+        const sid = currentSessionId
+
+        // Run in background — parallel DB+S3+diarize
+        processPostMeeting(audioPath, apiKey, summaryEngine).then(async (finalSummary) => {
           if (finalSummary) {
             safeSend('summary', finalSummary)
-            console.log('[IPC] Final expensive summary sent to renderer')
+            console.log('[IPC] Final summary sent to renderer')
           }
+
+          // Parallel Phase 2: DB save + S3 upload + Vector Store + Fine-tune
+          const saveOps: Promise<any>[] = []
+
+          // Save transcripts to DB
+          if (sid && transcriptEntries.length > 0) {
+            saveOps.push(
+              saveTranscripts(sid, transcriptEntries.map(t => ({
+                timestamp: t.timestamp,
+                text: t.text,
+                source: t.source,
+                speaker: t.speaker || null,
+                start_sec: t.start || 0,
+                end_sec: t.end || 0
+              }))).catch(err => console.error('[IPC] Save transcripts failed:', err))
+            )
+          }
+
+          // Save summary to DB
+          if (sid && finalSummary) {
+            const summaryState = summaryEngine.getState()
+            if (summaryState) {
+              saveOps.push(
+                saveSummary(sid, {
+                  document_summary: summaryState.documentSummary || '',
+                  statements: summaryState.statements || [],
+                  questions: summaryState.questions || [],
+                  follow_ups: []
+                }).catch(err => console.error('[IPC] Save summary failed:', err))
+              )
+
+              // Update session metadata
+              saveOps.push(
+                updateSession(sid, {
+                  duration_seconds: Math.floor((Date.now() - sessionStartTime) / 1000),
+                  document_type: summaryState.documentType || 'general',
+                  status: 'completed'
+                }).catch(err => console.error('[IPC] Update session failed:', err))
+              )
+            }
+          }
+
+          // Upload audio to S3
+          try {
+            const audioBuffer = fs.readFileSync(audioPath)
+            if (audioBuffer.length > 0 && sid) {
+              saveOps.push(
+                uploadSessionAudio(sid, audioBuffer)
+                  .then(key => { if (sid) updateSession(sid, { s3_audio_key: key }) })
+                  .catch(err => console.error('[IPC] S3 upload failed:', err))
+              )
+            }
+          } catch (err) {
+            console.error('[IPC] Failed to read audio for S3:', err)
+          }
+
+          // Upload to Vector Store for RAG
+          if (sid && finalSummary) {
+            const state = summaryEngine.getState()
+            const docContent = state?.documentSummary || ''
+            const transcript = transcriptEntries.map(t => t.text).join('\n')
+            saveOps.push(
+              uploadSessionToVectorStore(sid, `# Session Summary\n\n${docContent}\n\n# Transcript\n\n${transcript}`)
+                .then(fileId => { if (fileId && sid) updateSession(sid, { vector_store_file_id: fileId }) })
+                .catch(err => console.error('[IPC] Vector Store upload failed:', err))
+            )
+
+            // Queue fine-tuning data
+            saveOps.push(
+              queueFinetuneData(sid, transcript, docContent)
+                .catch(err => console.error('[IPC] Fine-tune queue failed:', err))
+            )
+          }
+
+          // Wait for all saves
+          await Promise.allSettled(saveOps)
+          console.log('[IPC] All post-meeting saves completed')
+
           safeSend('post-meeting-status', { processing: false })
         }).catch(err => {
           console.error('[IPC] Post-meeting error:', err)
@@ -298,6 +396,68 @@ export function initializeHandlers(window: BrowserWindow) {
       return { success: true, filePath }
     }
     return { success: false }
+  })
+
+  // --- Session handlers ---
+  ipcMain.handle('list-sessions', async () => {
+    return await listSessions()
+  })
+
+  ipcMain.handle('get-session', async (_event, id: string) => {
+    const session = await getSession(id)
+    if (!session) return null
+    const transcripts = await getSessionTranscripts(id)
+    const tags = await getSessionTags(id)
+    const speakers = await getSessionSpeakers(id)
+    return { session, transcripts, tags, speakers }
+  })
+
+  ipcMain.handle('delete-session', async (_event, id: string) => {
+    await deleteSession(id)
+    return { success: true }
+  })
+
+  // --- Tag handlers ---
+  ipcMain.handle('list-tags', async () => {
+    return await listTags()
+  })
+
+  ipcMain.handle('create-tag', async (_event, data: { name: string; color?: string }) => {
+    return await createTag(data.name, data.color)
+  })
+
+  ipcMain.handle('delete-tag', async (_event, id: number) => {
+    await deleteTag(id)
+    return { success: true }
+  })
+
+  ipcMain.handle('tag-session', async (_event, data: { sessionId: string; tagId: number }) => {
+    await tagSession(data.sessionId, data.tagId)
+    return { success: true }
+  })
+
+  ipcMain.handle('untag-session', async (_event, data: { sessionId: string; tagId: number }) => {
+    await untagSession(data.sessionId, data.tagId)
+    return { success: true }
+  })
+
+  // --- Speaker handlers ---
+  ipcMain.handle('list-speaker-profiles', async () => {
+    return await listSpeakerProfiles()
+  })
+
+  ipcMain.handle('create-speaker-profile', async (_event, data: { name: string; sampleText?: string; avatarColor?: string }) => {
+    return await createSpeakerProfile(data.name, data.sampleText, data.avatarColor)
+  })
+
+  ipcMain.handle('assign-speaker', async (_event, data: { sessionId: string; diarizeLabel: string; speakerProfileId: number }) => {
+    await assignSpeakerToSession(data.sessionId, data.diarizeLabel, data.speakerProfileId)
+    return { success: true }
+  })
+
+  // --- RAG handlers ---
+  ipcMain.handle('search-knowledge', async (_event, query: string) => {
+    return await searchKnowledge(query)
   })
 }
 

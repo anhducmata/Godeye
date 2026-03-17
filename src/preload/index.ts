@@ -30,6 +30,26 @@ contextBridge.exposeInMainWorld('meetsense', {
   // Post-meeting status
   onPostMeetingStatus: (cb: Function) => ipcRenderer.on('post-meeting-status', (_e, data) => cb(data)),
 
+  // Sessions
+  listSessions: () => ipcRenderer.invoke('list-sessions'),
+  getSession: (id: string) => ipcRenderer.invoke('get-session', id),
+  deleteSession: (id: string) => ipcRenderer.invoke('delete-session', id),
+
+  // Tags
+  listTags: () => ipcRenderer.invoke('list-tags'),
+  createTag: (data: { name: string; color?: string }) => ipcRenderer.invoke('create-tag', data),
+  deleteTag: (id: number) => ipcRenderer.invoke('delete-tag', id),
+  tagSession: (sessionId: string, tagId: number) => ipcRenderer.invoke('tag-session', { sessionId, tagId }),
+  untagSession: (sessionId: string, tagId: number) => ipcRenderer.invoke('untag-session', { sessionId, tagId }),
+
+  // Speakers
+  listSpeakerProfiles: () => ipcRenderer.invoke('list-speaker-profiles'),
+  createSpeakerProfile: (data: { name: string; sampleText?: string; avatarColor?: string }) => ipcRenderer.invoke('create-speaker-profile', data),
+  assignSpeaker: (data: { sessionId: string; diarizeLabel: string; speakerProfileId: number }) => ipcRenderer.invoke('assign-speaker', data),
+
+  // RAG Knowledge Search
+  searchKnowledge: (query: string) => ipcRenderer.invoke('search-knowledge', query),
+
   // Cleanup
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel)
 })
