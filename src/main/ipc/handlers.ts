@@ -1,12 +1,15 @@
 import { ipcMain, BrowserWindow, dialog } from 'electron'
 import { ScreenCapturer, CaptureFrame } from '../capture/screen'
 import { AudioCapturer, AudioChunk } from '../capture/audio'
-import { SidecarManager, TranscriptionResult } from '../sidecar/manager'
 import { OcrPipeline } from '../pipeline/ocr-worker'
 import { SummaryEngine, SummaryState } from '../pipeline/summary-engine'
+import { WhisperTranscriber, WhisperResult } from '../pipeline/whisper-transcriber'
 import { exportMarkdown, exportJSON, SessionData } from '../export'
 import fs from 'fs'
 import crypto from 'crypto'
+import path from 'path'
+import os from 'os'
+import { processPostMeeting } from '../pipeline/post-meeting'
 
 /**
  * Central IPC handler registry.
@@ -16,14 +19,19 @@ import crypto from 'crypto'
 
 let screenCapturer: ScreenCapturer
 let audioCapturer: AudioCapturer
-let sidecarManager: SidecarManager
 let ocrPipeline: OcrPipeline
 let summaryEngine: SummaryEngine
+let whisperTranscriber: WhisperTranscriber
 let mainWindow: BrowserWindow | null = null
 let sessionStartTime = 0
 let transcriptEntries: any[] = []
 let visualNotes: any[] = []
 let screenCaptureEnabled = false
+
+// WebM Recording
+let webmStream: fs.WriteStream | null = null
+export let sessionAudioPath: string | null = null
+let webmBytesWritten = 0
 
 /** Safe IPC send — ignores errors when the renderer frame is momentarily unavailable */
 function safeSend(channel: string, data?: any) {
@@ -46,12 +54,23 @@ export function initializeHandlers(window: BrowserWindow) {
   mainWindow = window
   screenCapturer = new ScreenCapturer()
   audioCapturer = new AudioCapturer()
-  sidecarManager = new SidecarManager()
   ocrPipeline = new OcrPipeline()
   summaryEngine = new SummaryEngine()
+  whisperTranscriber = new WhisperTranscriber()
 
   // Register audio IPC
   audioCapturer.registerIpcHandlers()
+
+  ipcMain.on('webm-chunk', (_event, buffer: ArrayBuffer) => {
+    if (webmStream) {
+      const buf = Buffer.from(buffer)
+      webmStream.write(buf)
+      webmBytesWritten += buf.length
+      if (webmBytesWritten < 5000 || webmBytesWritten % 50000 < 2000) {
+        console.log(`[IPC] WebM chunk written: ${buf.length} bytes (total: ${webmBytesWritten})`)
+      }
+    }
+  })
 
   // --- Screen capture handlers ---
   ipcMain.handle('get-screen-sources', async () => {
@@ -64,7 +83,7 @@ export function initializeHandlers(window: BrowserWindow) {
   })
 
   // --- Settings ---
-  ipcMain.handle('set-api-key', async (_event, config: { apiKey: string; provider: 'openai' | 'gemini' }) => {
+  ipcMain.handle('set-api-key', async (_event, config: { apiKey: string; provider: 'openai' | 'gemini'; language?: string }) => {
     summaryEngine.configure(config)
     return { success: true }
   })
@@ -90,16 +109,14 @@ export function initializeHandlers(window: BrowserWindow) {
     visualNotes = []
     screenCaptureEnabled = config.enableScreenCapture === true && !!config.sourceId
 
+    // Initialize WebM file stream
+    sessionAudioPath = path.join(os.tmpdir(), `godeye-session-${sessionStartTime}.webm`)
+    webmStream = fs.createWriteStream(sessionAudioPath)
+    webmBytesWritten = 0
+    console.log('[IPC] WebM recording path:', sessionAudioPath)
+
     // Configure audio
     audioCapturer.setConfig({ systemAudio: config.systemAudio, microphone: config.microphone })
-
-    // Start sidecar for ASR (non-blocking, optional)
-    try {
-      await sidecarManager.start()
-      console.log('[IPC] Sidecar started')
-    } catch (err) {
-      console.warn('[IPC] Sidecar failed to start, continuing without ASR:', err)
-    }
 
     // --- Screen capture (OPTIONAL — only if enabled) ---
     if (screenCaptureEnabled && config.sourceId) {
@@ -152,25 +169,34 @@ export function initializeHandlers(window: BrowserWindow) {
 
     // --- Audio pipeline (ALWAYS wired) ---
     audioCapturer.on('chunk', (chunk: AudioChunk) => {
-      sidecarManager.sendAudio(chunk.data)
+      // Feed to Whisper API transcriber
+      whisperTranscriber.addChunk(chunk.data)
     })
 
-    sidecarManager.on('transcription', (result: TranscriptionResult) => {
-      const entry = {
-        id: `tr-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
-        timestamp: Date.now(),
-        text: result.text,
-        start: result.start,
-        end: result.end
-      }
-      transcriptEntries.push(entry)
-      safeSend('transcript', entry)
-      summaryEngine.addEntry({
-        timestamp: Date.now(),
-        type: 'transcript',
-        content: result.text
+    // OpenAI Whisper API transcription (cloud)
+    const apiKey = process.env.OPENAI_API_KEY || ''
+    if (apiKey) {
+      whisperTranscriber.configure(apiKey, 16000)
+      whisperTranscriber.on('transcription', (result: WhisperResult) => {
+        const elapsedSeconds = (result.timestamp - sessionStartTime) / 1000
+        const entry = {
+          id: result.id,
+          timestamp: result.timestamp,
+          text: result.text,
+          start: elapsedSeconds,
+          end: elapsedSeconds,
+          source: 'whisper' as const,
+          audioBase64: result.audioBase64
+        }
+        transcriptEntries.push(entry)
+        safeSend('transcript', entry)
+        summaryEngine.addEntry({ timestamp: Date.now(), type: 'transcript', content: result.text })
       })
-    })
+      whisperTranscriber.start()
+      console.log('[IPC] WhisperTranscriber started (OpenAI API)')
+    } else {
+      console.log('[IPC] No OPENAI_API_KEY — Whisper API transcription disabled')
+    }
 
     // --- Summary engine → renderer ---
     summaryEngine.on('summary', (state: SummaryState) => {
@@ -201,7 +227,8 @@ export function initializeHandlers(window: BrowserWindow) {
     // Stop audio pipeline
     audioCapturer.stop()
     audioCapturer.removeAllListeners('chunk')
-    sidecarManager.removeAllListeners('transcription')
+    whisperTranscriber.stop()
+    whisperTranscriber.removeAllListeners('transcription')
 
     // Stop summary
     summaryEngine.stop()
@@ -209,6 +236,30 @@ export function initializeHandlers(window: BrowserWindow) {
 
     // Tell renderer to stop audio capture
     safeSend('stop-audio-capture')
+
+    // Finalize WebM and begin post-processing
+    if (webmStream) {
+      webmStream.end()
+      webmStream = null
+      console.log('[IPC] WebM recording finalized at:', sessionAudioPath)
+      
+      const apiKey = process.env.OPENAI_API_KEY || ''
+      if (apiKey && sessionAudioPath) {
+        // Notify renderer that post-meeting processing is starting
+        safeSend('post-meeting-status', { processing: true })
+        // Run in background
+        processPostMeeting(sessionAudioPath, apiKey, summaryEngine).then((finalSummary) => {
+          if (finalSummary) {
+            safeSend('summary', finalSummary)
+            console.log('[IPC] Final expensive summary sent to renderer')
+          }
+          safeSend('post-meeting-status', { processing: false })
+        }).catch(err => {
+          console.error('[IPC] Post-meeting error:', err)
+          safeSend('post-meeting-status', { processing: false })
+        })
+      }
+    }
 
     console.log('[IPC] ✅ Capture session stopped')
     return { success: true }

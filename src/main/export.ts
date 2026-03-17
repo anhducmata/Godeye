@@ -50,30 +50,31 @@ export function exportMarkdown(session: SessionData): string {
 
   // Summary
   if (session.summary) {
-    md += `## 🧠 Summary\n\n`
-    md += `**Current Topic:** ${session.summary.currentTopic}\n\n`
-    md += `${session.summary.summary}\n\n`
+    if (session.summary.documentSummary) {
+      md += `## 📄 Document Summary\n\n`
+      md += `${session.summary.documentSummary}\n\n`
+    }
 
-    if (session.summary.decisions.length > 0) {
-      md += `### ✅ Decisions\n\n`
-      for (const d of session.summary.decisions) {
+    if (session.summary.statements && session.summary.statements.length > 0) {
+      md += `### 📝 Key Statements\n\n`
+      for (const d of session.summary.statements) {
         md += `- ${d}\n`
       }
       md += `\n`
     }
 
-    if (session.summary.actionItems.length > 0) {
-      md += `### 🎯 Action Items\n\n`
-      for (const item of session.summary.actionItems) {
-        md += `- [ ] ${item}\n`
+    if (session.summary.questions && session.summary.questions.length > 0) {
+      md += `### ❓ Questions Raised\n\n`
+      for (const q of session.summary.questions) {
+        md += `- ${q}\n`
       }
       md += `\n`
     }
 
-    if (session.summary.unresolvedQuestions.length > 0) {
-      md += `### ❓ Unresolved Questions\n\n`
-      for (const q of session.summary.unresolvedQuestions) {
-        md += `- ${q}\n`
+    if (session.summary.followUpQuestions && session.summary.followUpQuestions.length > 0) {
+      md += `### 💡 Follow-Up Questions\n\n`
+      for (const fq of session.summary.followUpQuestions) {
+        md += `- **${fq.question}**\n  *${fq.answer ? fq.answer : 'Unanswered'}*\n`
       }
       md += `\n`
     }

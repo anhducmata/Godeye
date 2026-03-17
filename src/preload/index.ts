@@ -8,7 +8,7 @@ contextBridge.exposeInMainWorld('godeye', {
   stopCapture: () => ipcRenderer.invoke('stop-capture'),
 
   // Settings
-  setApiKey: (config: { apiKey: string; provider: string }) => ipcRenderer.invoke('set-api-key', config),
+  setApiKey: (config: { apiKey: string; provider: string; language?: string }) => ipcRenderer.invoke('set-api-key', config),
 
   // Export
   exportMarkdown: () => ipcRenderer.invoke('export-markdown'),
@@ -17,6 +17,7 @@ contextBridge.exposeInMainWorld('godeye', {
   // Event listeners
   onCaptureFrame: (cb: Function) => ipcRenderer.on('capture-frame', (_e, data) => cb(data)),
   onTranscript: (cb: Function) => ipcRenderer.on('transcript', (_e, data) => cb(data)),
+  onTranscriptInterim: (cb: Function) => ipcRenderer.on('transcript-interim', (_e, data) => cb(data)),
   onVisualNote: (cb: Function) => ipcRenderer.on('visual-note', (_e, data) => cb(data)),
   onSummary: (cb: Function) => ipcRenderer.on('summary', (_e, data) => cb(data)),
   onStartAudioCapture: (cb: Function) => ipcRenderer.on('start-audio-capture', (_e, config) => cb(config)),
@@ -24,6 +25,10 @@ contextBridge.exposeInMainWorld('godeye', {
 
   // Audio
   sendAudioChunk: (data: any) => ipcRenderer.send('audio-chunk', data),
+  sendWebmChunk: (data: ArrayBuffer) => ipcRenderer.send('webm-chunk', data),
+
+  // Post-meeting status
+  onPostMeetingStatus: (cb: Function) => ipcRenderer.on('post-meeting-status', (_e, data) => cb(data)),
 
   // Cleanup
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel)

@@ -14,8 +14,11 @@ import asyncio
 import json
 import sys
 import signal
+import base64
 import numpy as np
 import websockets
+import io
+import scipy.io.wavfile as wav
 from transcriber import RealtimeTranscriber
 
 
@@ -45,12 +48,23 @@ async def handle_client(websocket):
             # Binary audio data (16-bit PCM, 16kHz, mono)
             audio = np.frombuffer(message, dtype=np.int16).astype(np.float32) / 32768.0
             
-            results = transcriber.transcribe_chunk(audio, sr=16000)
+            results, is_final = transcriber.transcribe_chunk(audio, sr=16000)
             
             if results:
+                # Convert the float32 numpy array back to 16-bit PCM for the WAV file
+                audio_int16 = (audio * 32767).astype(np.int16)
+                
+                # Write to in-memory bytes buffer
+                buf = io.BytesIO()
+                wav.write(buf, 16000, audio_int16)
+                wav_bytes = buf.getvalue()
+                audio_b64 = base64.b64encode(wav_bytes).decode('utf-8')
+                
                 response = json.dumps({
                     "type": "transcription",
-                    "segments": results
+                    "segments": results,
+                    "is_final": is_final,
+                    "audioBase64": audio_b64
                 })
                 await websocket.send(response)
 

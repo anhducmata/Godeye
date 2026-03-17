@@ -6,6 +6,9 @@ export interface TranscriptEntry {
   text: string
   start: number
   end: number
+  source?: 'web' | 'whisper'
+  audioBase64?: string
+  audioUrl?: string
 }
 
 export interface VisualNote {
@@ -15,146 +18,188 @@ export interface VisualNote {
   thumbnail?: string
 }
 
-export interface SummaryData {
-  timestamp: number
-  currentTopic: string
-  summary: string
-  decisions: string[]
-  actionItems: string[]
-  unresolvedQuestions: string[]
+export interface FollowUpQuestion {
+  question: string
+  answer: string | null
 }
 
-// Web Speech API types (Chromium/Electron built-in)
-interface SpeechRecognitionEvent {
-  results: SpeechRecognitionResultList
-  resultIndex: number
+export interface SummaryData {
+  timestamp: number
+  documentSummary: string
+  statements: string[]
+  questions: string[]
+  followUpQuestions: FollowUpQuestion[]
 }
 
 export function useTranscript() {
   const [transcripts, setTranscripts] = useState<TranscriptEntry[]>([])
+  const [interimTranscript, setInterimTranscript] = useState<string>('')
+  const [interimWhisperTranscript, setInterimWhisperTranscript] = useState<string>('')
   const [visualNotes, setVisualNotes] = useState<VisualNote[]>([])
   const [summary, setSummary] = useState<SummaryData | null>(null)
-  const [isListening, setIsListening] = useState(false)
+  const [postMeetingProcessing, setPostMeetingProcessing] = useState(false)
 
   const recognitionRef = useRef<any>(null)
+  const isListeningRef = useRef(false)
   const startTimeRef = useRef(0)
   const entryCountRef = useRef(0)
 
-  // Listen to IPC events from main process (sidecar fallback)
+  // Listen to IPC events (Whisper / OpenAI transcription from main process)
   useEffect(() => {
     window.godeye.onTranscript((entry: TranscriptEntry) => {
-      setTranscripts(prev => [...prev, entry])
-    })
+      setTranscripts(prev => {
+        // Two-Pass Deduplication: when a high-quality Whisper transcript arrives,
+        // it covers the last ~5-10 seconds of audio. We remove any 'web' (mic) 
+        // transcripts from that time window so we don't show duplicates.
+        const whisperTime = entry.timestamp
+        const deduplicated = prev.filter(t => {
+          if (t.source !== 'web') return true
+          const ageDiff = whisperTime - t.timestamp
+          // Drop web transcripts that happened within the last 10 seconds of this Whisper result
+          if (ageDiff >= 0 && ageDiff < 10000) return false
+          return true
+        })
 
+        // Convert base64 audio to a playable Blob URL if present
+        let audioUrl = entry.audioUrl
+        if (entry.audioBase64 && !audioUrl) {
+          try {
+            const binaryString = window.atob(entry.audioBase64)
+            const len = binaryString.length
+            const bytes = new Uint8Array(len)
+            for (let i = 0; i < len; i++) {
+              bytes[i] = binaryString.charCodeAt(i)
+            }
+            const blob = new Blob([bytes], { type: 'audio/wav' })
+            audioUrl = URL.createObjectURL(blob)
+          } catch (e) {
+            console.error('Failed to parse audio base64', e)
+          }
+        }
+
+        return [...deduplicated, { ...entry, source: entry.source || 'whisper', audioUrl }]
+      })
+    })
+    // @ts-ignore - added to preload
+    window.godeye.onTranscriptInterim((data: { text: string; source: string }) => {
+      setInterimWhisperTranscript(data.text)
+    })
     window.godeye.onVisualNote((note: VisualNote) => {
       setVisualNotes(prev => [...prev, note])
     })
-
     window.godeye.onSummary((data: SummaryData) => {
       setSummary(data)
     })
-
+    // @ts-ignore
+    window.godeye.onPostMeetingStatus((data: { processing: boolean }) => {
+      setPostMeetingProcessing(data.processing)
+    })
     return () => {
       window.godeye.removeAllListeners('transcript')
+      window.godeye.removeAllListeners('transcript-interim')
       window.godeye.removeAllListeners('visual-note')
       window.godeye.removeAllListeners('summary')
+      window.godeye.removeAllListeners('post-meeting-status')
     }
   }, [])
 
-  /** Start Web Speech API recognition */
+  /** Start Web Speech API for mic transcription */
   const startListening = useCallback(() => {
-    // @ts-ignore — webkitSpeechRecognition is available in Chromium/Electron
+    // @ts-ignore
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition
     if (!SpeechRecognition) {
-      console.error('[Transcript] Web Speech API not available')
+      console.warn('[Transcript] Web Speech API not available')
       return
+    }
+
+    if (recognitionRef.current) {
+      try { recognitionRef.current.abort() } catch {}
     }
 
     const recognition = new SpeechRecognition()
     recognition.continuous = true
-    recognition.interimResults = true
-    recognition.lang = '' // auto-detect language
+    recognition.interimResults = true // Enable instant typing preview
     recognition.maxAlternatives = 1
 
     startTimeRef.current = Date.now()
     entryCountRef.current = 0
+    isListeningRef.current = true
 
-    recognition.onresult = (event: SpeechRecognitionEvent) => {
+    recognition.onstart = () => {
+      console.log('[Transcript] ✅ Web Speech API listening (mic)')
+    }
+
+    recognition.onresult = (event: any) => {
+      let interim = ''
       for (let i = event.resultIndex; i < event.results.length; i++) {
         const result = event.results[i]
+        const text = result[0].transcript
+
         if (result.isFinal) {
-          const text = result[0].transcript.trim()
-          if (text) {
+          if (text.trim()) {
             entryCountRef.current++
             const elapsed = (Date.now() - startTimeRef.current) / 1000
-            const entry: TranscriptEntry = {
-              id: `ws-${Date.now()}-${entryCountRef.current}`,
+            setTranscripts(prev => [...prev, {
+              id: `web-${Date.now()}-${entryCountRef.current}`,
               timestamp: Date.now(),
-              text,
+              text: text.trim(),
               start: elapsed,
-              end: elapsed
-            }
-            setTranscripts(prev => [...prev, entry])
-            console.log(`[Transcript] "${text}"`)
+              end: elapsed,
+              source: 'web'
+            }])
+            console.log(`[Transcript] 🎤 "${text.trim()}"`)
           }
+        } else {
+          interim += text
         }
       }
+      setInterimTranscript(interim)
     }
 
     recognition.onerror = (event: any) => {
-      console.warn('[Transcript] Speech recognition error:', event.error)
-      // 'no-speech' is common and harmless — just means silence was detected
-      if (event.error !== 'no-speech' && event.error !== 'aborted') {
-        // Retry on other errors
-        setTimeout(() => {
-          if (isListening) {
-            try { recognition.start() } catch {}
-          }
-        }, 1000)
+      console.warn('[Transcript] Web Speech API Error:', event.error)
+      // Stop looping if the network pipe crashes (common in Electron with system audio)
+      if (event.error === 'network' || event.error === 'not-allowed') {
+        isListeningRef.current = false
+        setInterimTranscript('Instant transcription disabled (network error). Waiting for Whisper...')
+        setTimeout(() => setInterimTranscript(''), 3000)
+        return
+      }
+
+      if (event.error === 'no-speech' && isListeningRef.current) {
+        setTimeout(() => { if (isListeningRef.current) try { recognition.start() } catch {} }, 500)
       }
     }
 
     recognition.onend = () => {
-      // Auto-restart if still supposed to be listening
-      if (isListening) {
-        console.log('[Transcript] Recognition ended, restarting...')
-        try { recognition.start() } catch {}
+      if (isListeningRef.current) {
+        // Use a longer backoff to prevent flooding the network process if it's failing
+        setTimeout(() => { if (isListeningRef.current) try { recognition.start() } catch {} }, 1000)
       }
     }
 
-    try {
-      recognition.start()
-      recognitionRef.current = recognition
-      setIsListening(true)
-      console.log('[Transcript] ✅ Web Speech API started')
-    } catch (err) {
-      console.error('[Transcript] Failed to start:', err)
-    }
-  }, [isListening])
+    recognitionRef.current = recognition
+    try { recognition.start() } catch (err) { console.error('[Transcript] Start failed:', err) }
+  }, [])
 
-  /** Stop recognition */
   const stopListening = useCallback(() => {
-    setIsListening(false)
+    isListeningRef.current = false
     if (recognitionRef.current) {
-      try { recognitionRef.current.stop() } catch {}
+      try { recognitionRef.current.abort() } catch {}
       recognitionRef.current = null
-      console.log('[Transcript] Stopped')
     }
   }, [])
 
   const clearAll = useCallback(() => {
     setTranscripts([])
+    setInterimTranscript('')
+    setInterimWhisperTranscript('')
     setVisualNotes([])
     setSummary(null)
   }, [])
 
   return {
-    transcripts,
-    visualNotes,
-    summary,
-    isListening,
-    startListening,
-    stopListening,
-    clearAll
+    transcripts, interimTranscript, interimWhisperTranscript, visualNotes, summary, postMeetingProcessing,
+    startListening, stopListening, clearAll
   }
 }

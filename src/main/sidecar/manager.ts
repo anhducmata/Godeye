@@ -14,6 +14,13 @@ export interface TranscriptionResult {
   start: number
   end: number
   language: string
+  audioBase64?: string
+}
+
+export interface TranscriptionBatch {
+  segments: TranscriptionResult[]
+  is_final: boolean
+  audioBase64?: string
 }
 
 export class SidecarManager extends EventEmitter {
@@ -118,9 +125,12 @@ export class SidecarManager extends EventEmitter {
       try {
         const msg = JSON.parse(data.toString())
         if (msg.type === 'transcription' && msg.segments) {
-          for (const segment of msg.segments) {
-            this.emit('transcription', segment as TranscriptionResult)
+          const batch: TranscriptionBatch = {
+            segments: msg.segments,
+            is_final: msg.is_final ?? true,
+            audioBase64: msg.audioBase64
           }
+          this.emit('transcriptionBatch', batch)
         }
       } catch (err) {
         console.error('[SidecarManager] Failed to parse message:', err)
