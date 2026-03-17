@@ -388,6 +388,22 @@ body {
   color: var(--text);
 }
 
+.session-card__duration {
+  color: var(--text-3);
+}
+
+.session-card__processing {
+  color: var(--amber);
+  font-size: 10px;
+  font-weight: 500;
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
 .session-card__menu {
   position: absolute;
   right: 0;

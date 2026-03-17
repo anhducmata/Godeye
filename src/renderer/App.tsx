@@ -173,7 +173,7 @@ function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} onOpenAuth={() => setShowAuth(true)} isRecording={state === 'capturing'} />
+      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} onOpenAuth={() => setShowAuth(true)} isRecording={state === 'capturing'} isProcessing={!!postMeetingProcessing} />
       <div className="app">
 
       {/* Settings Modal */}
@@ -333,7 +333,7 @@ function App() {
             {postMeetingProcessing && (
               <div className="processing-banner">
                 <div className="processing-banner__spinner" />
-                <span>Processing last session... (diarization + final summary running in background)</span>
+                <span>Processing...</span>
               </div>
             )}
           </main>

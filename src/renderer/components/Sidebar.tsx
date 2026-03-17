@@ -15,6 +15,7 @@ interface SidebarProps {
   onOpenSettings: () => void
   onOpenAuth: () => void
   isRecording: boolean
+  isProcessing: boolean
 }
 
 export interface SidebarHandle {
@@ -50,7 +51,7 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, onOpenAuth, isRecording }, ref) {
+export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, onOpenAuth, isRecording, isProcessing }, ref) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [collapsed, setCollapsed] = useState(false)
@@ -177,6 +178,9 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
               <span className="session-card__date">{formatDate(session.created_at)}</span>
               {session.duration_seconds && (
                 <span className="session-card__duration">{formatDuration(session.duration_seconds)}</span>
+              )}
+              {isProcessing && filtered.indexOf(session) === 0 && (
+                <span className="session-card__processing">⏳ Processing...</span>
               )}
             </div>
           </div>
