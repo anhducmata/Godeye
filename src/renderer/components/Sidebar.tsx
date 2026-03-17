@@ -12,6 +12,7 @@ interface Session {
 
 interface SidebarProps {
   onLoadSession: (id: string) => void
+  onOpenSettings: () => void
   isRecording: boolean
 }
 
@@ -48,7 +49,7 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, isRecording }, ref) {
+export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, isRecording }, ref) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [collapsed, setCollapsed] = useState(false)
@@ -148,6 +149,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
       </div>
 
       <div className="sidebar__footer">
+        <button className="sidebar__settings" onClick={onOpenSettings} title="Settings">⚙️</button>
         <button className="sidebar__refresh" onClick={loadSessions}>↻ Refresh</button>
       </div>
     </aside>

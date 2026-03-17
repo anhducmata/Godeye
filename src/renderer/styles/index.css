@@ -308,6 +308,24 @@ body {
 .sidebar__footer {
   padding: 8px 12px;
   border-top: 1px solid var(--border);
+  display: flex;
+  gap: 6px;
+}
+
+.sidebar__settings {
+  background: none;
+  border: 1px solid var(--border);
+  color: var(--text-3);
+  font-size: 14px;
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.sidebar__settings:hover {
+  border-color: var(--accent);
+  color: var(--text);
 }
 
 .sidebar__refresh {

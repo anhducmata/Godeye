@@ -134,7 +134,7 @@ function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} isRecording={state === 'capturing'} />
+      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} isRecording={state === 'capturing'} />
       <div className="app">
 
       {/* Settings Modal */}
@@ -202,9 +202,7 @@ function App() {
                 )}
               </div>
             </div>
-            <div className="topbar__right">
-              <button className="btn btn--icon" onClick={() => setShowSettings(true)} title="Settings">⚙️</button>
-            </div>
+            <div className="topbar__right" />
           </header>
 
           <main className="sessions-view">
