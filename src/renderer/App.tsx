@@ -425,7 +425,12 @@ function App() {
             {loadedSession.tags.length > 0 && (
               <div className="session-header__tags">
                 {loadedSession.tags.map((tag: any) => (
-                  <span key={tag.id} className="session-header__tag" style={{ color: tag.color }}>#{tag.name}</span>
+                  <span key={tag.id} className="session-header__tag session-header__tag--clickable" style={{ color: tag.color }} onClick={() => {
+                    setView('sessions')
+                    setLoadedSession(null)
+                    setSearchQuery(`#${tag.name}`)
+                    handleSearch(`#${tag.name}`)
+                  }}>#{tag.name}</span>
                 ))}
               </div>
             )}

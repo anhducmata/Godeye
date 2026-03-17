@@ -514,6 +514,15 @@ body {
   color: var(--text-3);
 }
 
+.session-header__tag--clickable {
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.session-header__tag--clickable:hover {
+  opacity: 0.6;
+}
+
 /* ================================================
    SEARCH RESULTS (GitHub-style)
    ================================================ */
