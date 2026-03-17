@@ -54,7 +54,7 @@ function App() {
 
   const handleStart = async () => {
     // Backend SummaryEngine will fallback to process.env if apiKey is empty
-    await window.godeye.setApiKey({ apiKey, provider: apiProvider, language })
+    await window.meetsense.setApiKey({ apiKey, provider: apiProvider, language })
     clearAll()
     addDebugLog(`▶ Starting: audio=${options.systemAudio}, mic=${options.microphone}`)
     await startCapture()
@@ -63,7 +63,7 @@ function App() {
   }
 
   const handleSaveSettings = async () => {
-    await window.godeye.setApiKey({ apiKey, provider: apiProvider, language })
+    await window.meetsense.setApiKey({ apiKey, provider: apiProvider, language })
     addDebugLog(`⚙️ Config set for ${apiProvider} (${language})`)
     setShowSettings(false)
   }
@@ -102,7 +102,7 @@ function App() {
       {/* Top Bar */}
       <header className="topbar">
         <div className="topbar__left">
-          <span className="topbar__logo">👁 Godeye</span>
+          <span className="topbar__logo">👁 meetsense</span>
           {state === 'capturing' && (
             <span className="topbar__live">
               <span className="topbar__dot"></span>
@@ -338,8 +338,8 @@ function App() {
           </div>
           {!showDebug && (
             <div className="col__foot">
-              <button className="btn btn--sm" onClick={() => window.godeye.exportMarkdown()}>📄 Export MD</button>
-              <button className="btn btn--sm" onClick={() => window.godeye.exportJSON()}>📋 Export JSON</button>
+              <button className="btn btn--sm" onClick={() => window.meetsense.exportMarkdown()}>📄 Export MD</button>
+              <button className="btn btn--sm" onClick={() => window.meetsense.exportJSON()}>📋 Export JSON</button>
             </div>
           )}
         </section>

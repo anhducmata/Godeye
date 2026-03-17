@@ -110,7 +110,7 @@ export function initializeHandlers(window: BrowserWindow) {
     screenCaptureEnabled = config.enableScreenCapture === true && !!config.sourceId
 
     // Initialize WebM file stream
-    sessionAudioPath = path.join(os.tmpdir(), `godeye-session-${sessionStartTime}.webm`)
+    sessionAudioPath = path.join(os.tmpdir(), `meetsense-session-${sessionStartTime}.webm`)
     webmStream = fs.createWriteStream(sessionAudioPath)
     webmBytesWritten = 0
     console.log('[IPC] WebM recording path:', sessionAudioPath)
@@ -272,7 +272,7 @@ export function initializeHandlers(window: BrowserWindow) {
 
     const { filePath } = await dialog.showSaveDialog(mainWindow!, {
       title: 'Export Session as Markdown',
-      defaultPath: `godeye-session-${new Date().toISOString().slice(0, 10)}.md`,
+      defaultPath: `meetsense-session-${new Date().toISOString().slice(0, 10)}.md`,
       filters: [{ name: 'Markdown', extensions: ['md'] }]
     })
 
@@ -289,7 +289,7 @@ export function initializeHandlers(window: BrowserWindow) {
 
     const { filePath } = await dialog.showSaveDialog(mainWindow!, {
       title: 'Export Session as JSON',
-      defaultPath: `godeye-session-${new Date().toISOString().slice(0, 10)}.json`,
+      defaultPath: `meetsense-session-${new Date().toISOString().slice(0, 10)}.json`,
       filters: [{ name: 'JSON', extensions: ['json'] }]
     })
 

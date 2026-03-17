@@ -1,7 +1,7 @@
 {
-  "name": "godeye",
+  "name": "meetsense",
   "version": "1.0.0",
-  "description": "Context-Aware Desktop Observer — AI summary from both ears and eyes",
+  "description": "MeetSense — AI-powered meeting transcription, summarization, and knowledge linking",
   "main": "./out/main/index.js",
   "scripts": {
     "dev": "electron-vite dev",

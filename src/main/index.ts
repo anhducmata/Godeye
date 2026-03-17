@@ -10,7 +10,7 @@ process.on('uncaughtException', (err) => {
     // Harmless — happens during HMR reload, safe to ignore
     return
   }
-  console.error('[Godeye] Uncaught exception:', err)
+  console.error('[meetsense] Uncaught exception:', err)
 })
 
 function createWindow() {
@@ -19,7 +19,7 @@ function createWindow() {
     height: 900,
     minWidth: 1000,
     minHeight: 600,
-    title: 'Godeye — Desktop Observer',
+    title: 'meetsense — Desktop Observer',
     backgroundColor: '#0a0a0f',
     webPreferences: {
       preload: path.join(__dirname, '../preload/index.js'),

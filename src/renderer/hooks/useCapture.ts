@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 
 declare global {
   interface Window {
-    godeye: {
+    meetsense: {
       getScreenSources: () => Promise<Array<{ id: string; name: string; thumbnail: string }>>
       selectArea: () => Promise<{ x: number; y: number; width: number; height: number } | null>
       startCapture: (config: any) => Promise<{ success: boolean }>
@@ -69,13 +69,13 @@ export function useCapture() {
 
   const addDebugLog = useCallback((message: string, level: 'info' | 'warn' | 'error' = 'info') => {
     setDebugLogs(prev => [...prev.slice(-200), { time: ts(), message, level }])
-    console.log(`[Godeye] ${message}`)
+    console.log(`[meetsense] ${message}`)
   }, [])
 
   const loadSources = useCallback(async () => {
     try {
       addDebugLog('🔍 Loading screen sources...')
-      const s = await window.godeye.getScreenSources()
+      const s = await window.meetsense.getScreenSources()
       setSources(s)
       addDebugLog(`✅ Found ${s.length} sources`)
     } catch (err: any) {
@@ -86,7 +86,7 @@ export function useCapture() {
   const selectArea = useCallback(async () => {
     try {
       addDebugLog('🔲 Opening area selector...')
-      const region = await window.godeye.selectArea()
+      const region = await window.meetsense.selectArea()
       if (region) {
         setCropRegion(region)
         addDebugLog(`✅ Area: ${region.width}×${region.height}`)
@@ -113,7 +113,7 @@ export function useCapture() {
       addDebugLog(`🚀 Starting capture: audio=${options.systemAudio}, mic=${options.microphone}, screen=${config.enableScreenCapture}`)
       setFrameCount(0)
 
-      const result = await window.godeye.startCapture(config)
+      const result = await window.meetsense.startCapture(config)
 
       if (result.success) {
         setState('capturing')
@@ -129,7 +129,7 @@ export function useCapture() {
   const stopCapture = useCallback(async () => {
     try {
       addDebugLog('⏹ Stopping...')
-      await window.godeye.stopCapture()
+      await window.meetsense.stopCapture()
       setState('idle')
       addDebugLog('✅ Stopped')
 
@@ -144,11 +144,11 @@ export function useCapture() {
 
   // Listen for frames
   useEffect(() => {
-    window.godeye.onCaptureFrame((frame) => {
+    window.meetsense.onCaptureFrame((frame) => {
       setLatestFrame(frame.dataUrl)
       setFrameCount(prev => prev + 1)
     })
-    return () => { window.godeye.removeAllListeners('capture-frame') }
+    return () => { window.meetsense.removeAllListeners('capture-frame') }
   }, [])
 
   // Audio capture in renderer (handles system audio via Electron)
@@ -212,7 +212,7 @@ export function useCapture() {
               const s = Math.max(-1, Math.min(1, (inputL[i] + inputR[i]) / 2))
               int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF
             }
-            window.godeye.sendAudioChunk({
+            window.meetsense.sendAudioChunk({
               timestamp: Date.now(),
               buffer: int16.buffer,
               source: 'system+mic'
@@ -275,7 +275,7 @@ export function useCapture() {
               const sample = Math.max(-1, Math.min(1, inputData[i]))
               int16[i] = sample < 0 ? sample * 0x8000 : sample * 0x7FFF
             }
-            window.godeye.sendAudioChunk({
+            window.meetsense.sendAudioChunk({
               timestamp: Date.now(),
               buffer: int16.buffer,
               source: sourceName
@@ -318,7 +318,7 @@ export function useCapture() {
             if (e.data.size > 0) {
               webmChunkCount++
               const buffer = await e.data.arrayBuffer()
-              window.godeye.sendWebmChunk(buffer)
+              window.meetsense.sendWebmChunk(buffer)
               if (webmChunkCount <= 3 || webmChunkCount % 10 === 0) {
                 addDebugLog(`📦 WebM chunk #${webmChunkCount}: ${buffer.byteLength} bytes`)
               }
@@ -335,8 +335,8 @@ export function useCapture() {
       }
     }
 
-    window.godeye.onStartAudioCapture(startAudio)
-    window.godeye.onStopAudioCapture(() => {
+    window.meetsense.onStartAudioCapture(startAudio)
+    window.meetsense.onStopAudioCapture(() => {
       addDebugLog('🔊 Audio stopped')
       if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') { mediaRecorderRef.current.stop() }
       mediaRecorderRef.current = null
@@ -346,8 +346,8 @@ export function useCapture() {
     })
 
     return () => {
-      window.godeye.removeAllListeners('start-audio-capture')
-      window.godeye.removeAllListeners('stop-audio-capture')
+      window.meetsense.removeAllListeners('start-audio-capture')
+      window.meetsense.removeAllListeners('stop-audio-capture')
     }
   }, [addDebugLog])
 

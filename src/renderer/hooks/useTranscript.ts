@@ -46,7 +46,7 @@ export function useTranscript() {
 
   // Listen to IPC events (Whisper / OpenAI transcription from main process)
   useEffect(() => {
-    window.godeye.onTranscript((entry: TranscriptEntry) => {
+    window.meetsense.onTranscript((entry: TranscriptEntry) => {
       setTranscripts(prev => {
         // Two-Pass Deduplication: when a high-quality Whisper transcript arrives,
         // it covers the last ~5-10 seconds of audio. We remove any 'web' (mic) 
@@ -81,25 +81,25 @@ export function useTranscript() {
       })
     })
     // @ts-ignore - added to preload
-    window.godeye.onTranscriptInterim((data: { text: string; source: string }) => {
+    window.meetsense.onTranscriptInterim((data: { text: string; source: string }) => {
       setInterimWhisperTranscript(data.text)
     })
-    window.godeye.onVisualNote((note: VisualNote) => {
+    window.meetsense.onVisualNote((note: VisualNote) => {
       setVisualNotes(prev => [...prev, note])
     })
-    window.godeye.onSummary((data: SummaryData) => {
+    window.meetsense.onSummary((data: SummaryData) => {
       setSummary(data)
     })
     // @ts-ignore
-    window.godeye.onPostMeetingStatus((data: { processing: boolean }) => {
+    window.meetsense.onPostMeetingStatus((data: { processing: boolean }) => {
       setPostMeetingProcessing(data.processing)
     })
     return () => {
-      window.godeye.removeAllListeners('transcript')
-      window.godeye.removeAllListeners('transcript-interim')
-      window.godeye.removeAllListeners('visual-note')
-      window.godeye.removeAllListeners('summary')
-      window.godeye.removeAllListeners('post-meeting-status')
+      window.meetsense.removeAllListeners('transcript')
+      window.meetsense.removeAllListeners('transcript-interim')
+      window.meetsense.removeAllListeners('visual-note')
+      window.meetsense.removeAllListeners('summary')
+      window.meetsense.removeAllListeners('post-meeting-status')
     }
   }, [])
 

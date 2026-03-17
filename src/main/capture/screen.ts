@@ -292,7 +292,7 @@ export class ScreenCapturer extends EventEmitter {
 </body>
 </html>`
 
-      const tmpPath = join(app.getPath('temp'), 'godeye-overlay.html')
+      const tmpPath = join(app.getPath('temp'), 'meetsense-overlay.html')
       writeFileSync(tmpPath, htmlContent, 'utf-8')
       console.log('[ScreenCapturer] Wrote overlay HTML to:', tmpPath)
 

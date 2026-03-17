@@ -1,6 +1,6 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-contextBridge.exposeInMainWorld('godeye', {
+contextBridge.exposeInMainWorld('meetsense', {
   // Screen capture
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
   selectArea: () => ipcRenderer.invoke('select-area'),
