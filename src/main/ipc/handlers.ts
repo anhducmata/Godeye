@@ -507,9 +507,53 @@ Respond in this exact JSON format:
     return { success: true }
   })
 
-  // --- RAG handlers ---
+  // --- Search handlers ---
   ipcMain.handle('search-knowledge', async (_event, query: string) => {
-    return await searchKnowledge(query)
+    try {
+      const pool = (await import('../db/client')).getPool()
+
+      // Tag-based search: #tagname
+      if (query.startsWith('#')) {
+        const tagName = query.slice(1).trim().toLowerCase()
+        const res = await pool.query(`
+          SELECT s.id as session_id, s.title as session_title, s.created_at,
+                 (SELECT t2.text FROM transcripts t2 WHERE t2.session_id = s.id ORDER BY t2.id LIMIT 1) as text
+          FROM sessions s
+          JOIN session_tags st ON st.session_id = s.id
+          JOIN tags t ON t.id = st.tag_id
+          WHERE LOWER(t.name) = $1
+          ORDER BY s.created_at DESC
+          LIMIT 20
+        `, [tagName])
+        return res.rows.map((r: any) => ({
+          session_id: r.session_id,
+          session_title: r.session_title || 'Untitled Session',
+          text: r.text || '',
+          content: r.text || ''
+        }))
+      }
+
+      // Full-text search on transcripts + session titles
+      const pattern = `%${query}%`
+      const res = await pool.query(`
+        SELECT DISTINCT ON (t.session_id)
+          t.session_id, s.title as session_title, t.text
+        FROM transcripts t
+        JOIN sessions s ON s.id = t.session_id
+        WHERE t.text ILIKE $1 OR s.title ILIKE $1
+        ORDER BY t.session_id, t.id DESC
+        LIMIT 20
+      `, [pattern])
+      return res.rows.map((r: any) => ({
+        session_id: r.session_id,
+        session_title: r.session_title || 'Untitled Session',
+        text: r.text || '',
+        content: r.text || ''
+      }))
+    } catch (err) {
+      console.error('[Search] Failed:', err)
+      return []
+    }
   })
 }
 
