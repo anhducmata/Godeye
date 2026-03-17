@@ -865,9 +865,9 @@ body {
 
 .chat-bubble--primary {
   align-self: flex-start;
-  background: rgba(59, 130, 246, 0.04);
-  border-color: rgba(59, 130, 246, 0.08);
-  border-left: 2px solid var(--accent);
+  background: rgba(255, 255, 255, 0.02);
+  border-color: rgba(255, 255, 255, 0.04);
+  border-left: 2px solid rgba(255, 255, 255, 0.12);
   border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
 }
 
@@ -894,7 +894,7 @@ body {
 .chat-bubble__speaker {
   font-size: 9px;
   font-weight: 600;
-  color: var(--accent-2);
+  color: var(--text-3);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
