@@ -126,16 +126,6 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
         <button className="sidebar__collapse" onClick={() => setCollapsed(true)}>◀</button>
       </div>
 
-      <div className="sidebar__search">
-        <input
-          type="text"
-          placeholder="Search sessions..."
-          value={searchQuery}
-          onChange={e => setSearchQuery(e.target.value)}
-          className="sidebar__search-input"
-        />
-      </div>
-
       <div className="sidebar__sessions">
         {filtered.length === 0 && (
           <div className="sidebar__empty">
