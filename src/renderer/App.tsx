@@ -57,7 +57,7 @@ function App() {
   }, [debugLogs])
 
   const handleNewSession = async () => {
-    await window.meetsense.setApiKey({ apiKey, provider: apiProvider, language })
+    await window.meetsense?.setApiKey({ apiKey, provider: apiProvider, language })
     clearAll()
     addDebugLog(`▶ Starting: audio=${options.systemAudio}, mic=${options.microphone}`)
     await startCapture()
@@ -74,7 +74,7 @@ function App() {
 
   const handleLoadSession = async (id: string) => {
     try {
-      const data = await window.meetsense.getSession(id)
+      const data = await window.meetsense?.getSession(id)
       if (data) {
         console.log('[App] Loaded session:', id, data)
         setView('viewing')
@@ -85,7 +85,7 @@ function App() {
   }
 
   const handleSaveSettings = async () => {
-    await window.meetsense.setApiKey({ apiKey, provider: apiProvider, language })
+    await window.meetsense?.setApiKey({ apiKey, provider: apiProvider, language })
     addDebugLog(`⚙️ Config set for ${apiProvider} (${language})`)
     setShowSettings(false)
   }

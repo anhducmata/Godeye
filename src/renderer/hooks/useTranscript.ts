@@ -46,6 +46,7 @@ export function useTranscript() {
 
   // Listen to IPC events (Whisper / OpenAI transcription from main process)
   useEffect(() => {
+    if (!window.meetsense) return
     window.meetsense.onTranscript((entry: TranscriptEntry) => {
       setTranscripts(prev => {
         // Two-Pass Deduplication: when a high-quality Whisper transcript arrives,

@@ -58,6 +58,7 @@ export function Sidebar({ onLoadSession, isRecording }: SidebarProps) {
 
   const loadSessions = async () => {
     try {
+      if (!window.meetsense?.listSessions) return
       const result = await window.meetsense.listSessions()
       setSessions(result || [])
     } catch {
@@ -67,6 +68,7 @@ export function Sidebar({ onLoadSession, isRecording }: SidebarProps) {
 
   const loadTags = async () => {
     try {
+      if (!window.meetsense?.listTags) return
       const result = await window.meetsense.listTags()
       setTags(result || [])
     } catch {
@@ -77,7 +79,7 @@ export function Sidebar({ onLoadSession, isRecording }: SidebarProps) {
   const handleDelete = async (id: string, e: React.MouseEvent) => {
     e.stopPropagation()
     if (!confirm('Delete this session?')) return
-    await window.meetsense.deleteSession(id)
+    await window.meetsense?.deleteSession(id)
     loadSessions()
   }
 

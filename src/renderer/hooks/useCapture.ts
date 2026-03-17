@@ -162,6 +162,7 @@ export function useCapture() {
 
   // Listen for frames
   useEffect(() => {
+    if (!window.meetsense) return
     window.meetsense.onCaptureFrame((frame) => {
       setLatestFrame(frame.dataUrl)
       setFrameCount(prev => prev + 1)
@@ -353,6 +354,7 @@ export function useCapture() {
       }
     }
 
+    if (!window.meetsense) return
     window.meetsense.onStartAudioCapture(startAudio)
     window.meetsense.onStopAudioCapture(() => {
       addDebugLog('🔊 Audio stopped')
