@@ -4,9 +4,17 @@ import { useTranscript } from './hooks/useTranscript'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './components/MermaidBlock'
-import { Sidebar } from './components/Sidebar'
+import { Sidebar, SidebarHandle } from './components/Sidebar'
 
 type AppView = 'sessions' | 'recording' | 'viewing'
+
+interface LoadedSession {
+  session: any
+  transcripts: any[]
+  summary: any
+  tags: any[]
+  speakers: any[]
+}
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0')
@@ -24,12 +32,14 @@ function App() {
   const { transcripts, interimTranscript, interimWhisperTranscript, summary, postMeetingProcessing, clearAll, startListening, stopListening } = useTranscript()
 
   const [view, setView] = useState<AppView>('sessions')
+  const [loadedSession, setLoadedSession] = useState<LoadedSession | null>(null)
   const [showSettings, setShowSettings] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
   const [apiKey, setApiKey] = useState('')
   const [apiProvider, setApiProvider] = useState<'openai' | 'gemini'>('gemini')
   const [language, setLanguage] = useState('English')
 
+  const sidebarRef = useRef<SidebarHandle>(null)
   const transcriptEndRef = useRef<HTMLDivElement>(null)
   const statementsEndRef = useRef<HTMLDivElement>(null)
   const summaryEndRef = useRef<HTMLDivElement>(null)
@@ -56,6 +66,14 @@ function App() {
     debugEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [debugLogs])
 
+  // Auto-refresh sidebar when post-meeting processing completes
+  useEffect(() => {
+    if (postMeetingProcessing === false) {
+      // Processing just finished — refresh sidebar to show updated title/tags
+      setTimeout(() => sidebarRef.current?.refresh(), 500)
+    }
+  }, [postMeetingProcessing])
+
   const handleNewSession = async () => {
     await window.meetsense?.setApiKey({ apiKey, provider: apiProvider, language })
     clearAll()
@@ -63,20 +81,23 @@ function App() {
     await startCapture()
     startListening()
     setView('recording')
+    // Refresh sidebar to show the new "in progress" session
+    setTimeout(() => sidebarRef.current?.refresh(), 1000)
   }
 
   const handleEndSession = async () => {
     stopListening()
     await stopCapture()
-    // Final summary runs in background — go back to sessions
     setView('sessions')
+    // Refresh sidebar after session data is saved
+    setTimeout(() => sidebarRef.current?.refresh(), 1500)
   }
 
   const handleLoadSession = async (id: string) => {
     try {
       const data = await window.meetsense?.getSession(id)
       if (data) {
-        console.log('[App] Loaded session:', id, data)
+        setLoadedSession(data)
         setView('viewing')
       }
     } catch (err) {
@@ -92,7 +113,7 @@ function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar onLoadSession={handleLoadSession} isRecording={state === 'capturing'} />
+      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} isRecording={state === 'capturing'} />
       <div className="app">
 
       {/* Settings Modal */}
@@ -183,6 +204,152 @@ function App() {
                 <span>Processing last session... (diarization + final summary running in background)</span>
               </div>
             )}
+          </main>
+        </>
+      )}
+
+      {/* ============================================
+          VIEW: SESSION DETAIL (Viewing saved session)
+          ============================================ */}
+      {view === 'viewing' && loadedSession && (
+        <>
+          <header className="topbar">
+            <div className="topbar__left">
+              <button className="btn btn--sm" onClick={() => { setView('sessions'); setLoadedSession(null) }}>← Back</button>
+              <span className="topbar__session-title">{loadedSession.session.title || 'Untitled Session'}</span>
+              {loadedSession.tags.length > 0 && (
+                <div className="topbar__tags">
+                  {loadedSession.tags.map((tag: any) => (
+                    <span key={tag.id} className="topbar__tag" style={{ color: tag.color }}>#{tag.name}</span>
+                  ))}
+                </div>
+              )}
+            </div>
+            <div className="topbar__right">
+              <span className="topbar__meta">
+                {new Date(loadedSession.session.created_at).toLocaleString()}
+                {loadedSession.session.duration_seconds && ` · ${formatTime(loadedSession.session.duration_seconds)}`}
+              </span>
+            </div>
+          </header>
+
+          <main className="columns">
+            {/* Column 1: Transcript */}
+            <section className="col">
+              <div className="col__head">
+                <h2>Transcript</h2>
+                <span className="badge">{loadedSession.transcripts.length}</span>
+              </div>
+              <div className="col__body">
+                {loadedSession.transcripts.length === 0 ? (
+                  <div className="empty">
+                    <div className="empty__icon">📝</div>
+                    <p>No transcript saved for this session</p>
+                  </div>
+                ) : (
+                  <div className="chat-list">
+                    {loadedSession.transcripts.map((entry: any, i: number) => (
+                      <div key={i} className={`chat-bubble ${entry.source === 'whisper' ? 'chat-bubble--primary' : 'chat-bubble--secondary'}`}>
+                        <div className="chat-bubble__meta">
+                          <span className="chat-bubble__speaker">
+                            {entry.speaker || (entry.source === 'whisper' ? '🎙️ Whisper' : '🗣️ Instant')}
+                          </span>
+                          <span className="chat-bubble__time">{formatTime(Math.floor(entry.start_sec || 0))}</span>
+                        </div>
+                        <div className="chat-bubble__text">{entry.text}</div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </section>
+
+            {/* Column 2: Summary */}
+            <section className="col">
+              <div className="col__head">
+                <h2>Summary</h2>
+                <span className="badge">AI</span>
+              </div>
+              <div className="col__body" style={{ display: 'flex', flexDirection: 'column', gap: 0, padding: 0 }}>
+                {!loadedSession.summary ? (
+                  <div className="empty" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                    <div>
+                      <div className="empty__icon">🧠</div>
+                      <p>No summary saved for this session</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <div style={{ flex: '0 0 60%', overflowY: 'auto', padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                      <div className="mindmap">
+                        {loadedSession.summary.statements?.length > 0 ? (
+                          <div className="mindmap__branch">
+                            <div className="mindmap__label">💬 Statements & Facts</div>
+                            {loadedSession.summary.statements.map((d: string, i: number) => (
+                              <div key={i} className="mindmap__leaf">{d}</div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No statements recorded</p>
+                        )}
+                      </div>
+                    </div>
+                    <div style={{ flex: '0 0 40%', overflowY: 'auto', padding: '16px' }}>
+                      <div className="mindmap">
+                        {loadedSession.summary.questions?.length > 0 ? (
+                          <div className="mindmap__branch">
+                            <div className="mindmap__label">❓ Questions</div>
+                            {loadedSession.summary.questions.map((q: string, i: number) => (
+                              <div key={i} className="mindmap__leaf">{q}</div>
+                            ))}
+                          </div>
+                        ) : (
+                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No questions recorded</p>
+                        )}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </section>
+
+            {/* Column 3: Document */}
+            <section className="col">
+              <div className="col__head">
+                <h2>Document</h2>
+                <span className="badge">Summary</span>
+              </div>
+              <div className="col__body">
+                {loadedSession.summary?.document_summary ? (
+                  <div className="document-summary">
+                    <ReactMarkdown
+                      remarkPlugins={[remarkGfm]}
+                      components={{
+                        code(props) {
+                          const {children, className, node, ...rest} = props
+                          const match = /language-(\w+)/.exec(className || '')
+                          if (match && match[1] === 'mermaid') {
+                            return <MermaidBlock chart={String(children).replace(/\n$/, '')} />
+                          }
+                          return <code {...rest} className={className}>{children}</code>
+                        }
+                      }}
+                    >
+                      {loadedSession.summary.document_summary}
+                    </ReactMarkdown>
+                  </div>
+                ) : (
+                  <div className="empty">
+                    <div className="empty__icon">📄</div>
+                    <p>No document summary saved</p>
+                  </div>
+                )}
+              </div>
+              <div className="col__foot">
+                <button className="btn btn--sm" onClick={() => window.meetsense?.exportMarkdown()}>📄 Export MD</button>
+                <button className="btn btn--sm" onClick={() => window.meetsense?.exportJSON()}>📋 Export JSON</button>
+              </div>
+            </section>
           </main>
         </>
       )}
@@ -350,6 +517,14 @@ function App() {
                     </div>
                   ) : (
                   <div className="document-summary" style={{ position: 'relative' }}>
+                    {postMeetingProcessing && (
+                      <div className="post-meeting-overlay">
+                        <div className="post-meeting-overlay__content">
+                          <div className="post-meeting-overlay__spinner" />
+                          <p>Generating final speaker-aware summary...</p>
+                        </div>
+                      </div>
+                    )}
                     {summary.documentSummary ? (
                         <ReactMarkdown
                           remarkPlugins={[remarkGfm]}
@@ -376,8 +551,8 @@ function App() {
               </div>
               {!showDebug && (
                 <div className="col__foot">
-                  <button className="btn btn--sm" onClick={() => window.meetsense.exportMarkdown()}>📄 Export MD</button>
-                  <button className="btn btn--sm" onClick={() => window.meetsense.exportJSON()}>📋 Export JSON</button>
+                  <button className="btn btn--sm" onClick={() => window.meetsense?.exportMarkdown()}>📄 Export MD</button>
+                  <button className="btn btn--sm" onClick={() => window.meetsense?.exportJSON()}>📋 Export JSON</button>
                 </div>
               )}
             </section>

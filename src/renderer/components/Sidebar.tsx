@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, useImperativeHandle, forwardRef } from 'react'
 
 interface Session {
   id: string
@@ -13,6 +13,10 @@ interface Session {
 interface SidebarProps {
   onLoadSession: (id: string) => void
   isRecording: boolean
+}
+
+export interface SidebarHandle {
+  refresh: () => void
 }
 
 const DOC_TYPE_ICONS: Record<string, string> = {
@@ -44,16 +48,17 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export function Sidebar({ onLoadSession, isRecording }: SidebarProps) {
+export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, isRecording }, ref) {
   const [sessions, setSessions] = useState<Session[]>([])
-  const [tags, setTags] = useState<Array<{ id: number; name: string; color: string }>>([])
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedTag, setSelectedTag] = useState<number | null>(null)
   const [collapsed, setCollapsed] = useState(false)
+
+  useImperativeHandle(ref, () => ({
+    refresh: () => loadSessions()
+  }))
 
   useEffect(() => {
     loadSessions()
-    loadTags()
   }, [])
 
   const loadSessions = async () => {
@@ -63,16 +68,6 @@ export function Sidebar({ onLoadSession, isRecording }: SidebarProps) {
       setSessions(result || [])
     } catch {
       console.error('[Sidebar] Failed to load sessions')
-    }
-  }
-
-  const loadTags = async () => {
-    try {
-      if (!window.meetsense?.listTags) return
-      const result = await window.meetsense.listTags()
-      setTags(result || [])
-    } catch {
-      console.error('[Sidebar] Failed to load tags')
     }
   }
 
@@ -113,23 +108,6 @@ export function Sidebar({ onLoadSession, isRecording }: SidebarProps) {
         />
       </div>
 
-      {tags.length > 0 && (
-        <div className="sidebar__tags">
-          <button
-            className={`tag-chip ${selectedTag === null ? 'tag-chip--active' : ''}`}
-            onClick={() => setSelectedTag(null)}
-          >All</button>
-          {tags.map(tag => (
-            <button
-              key={tag.id}
-              className={`tag-chip ${selectedTag === tag.id ? 'tag-chip--active' : ''}`}
-              style={{ '--tag-color': tag.color } as React.CSSProperties}
-              onClick={() => setSelectedTag(tag.id === selectedTag ? null : tag.id)}
-            >{tag.name}</button>
-          ))}
-        </div>
-      )}
-
       <div className="sidebar__sessions">
         {filtered.length === 0 && (
           <div className="sidebar__empty">
@@ -146,6 +124,15 @@ export function Sidebar({ onLoadSession, isRecording }: SidebarProps) {
               <span className="session-card__icon">{DOC_TYPE_ICONS[session.document_type] || '📝'}</span>
               <span className="session-card__title">{session.title || 'Untitled Session'}</span>
             </div>
+            {session.tags && session.tags.length > 0 && (
+              <div className="session-card__tags">
+                {session.tags.slice(0, 3).map(tag => (
+                  <span key={tag.id} className="session-card__tag" style={{ color: tag.color }}>
+                    #{tag.name}
+                  </span>
+                ))}
+              </div>
+            )}
             <div className="session-card__meta">
               <span className="session-card__date">{formatDate(session.created_at)}</span>
               {session.duration_seconds && (
@@ -165,4 +152,4 @@ export function Sidebar({ onLoadSession, isRecording }: SidebarProps) {
       </div>
     </aside>
   )
-}
+})

@@ -122,3 +122,49 @@ export async function getSessionTranscripts(sessionId: string): Promise<Transcri
   )
   return result.rows
 }
+
+export interface SummaryRow {
+  id: number
+  session_id: string
+  document_summary: string
+  statements: string[]
+  questions: string[]
+  follow_ups: any[]
+}
+
+export async function getSessionSummary(sessionId: string): Promise<SummaryRow | null> {
+  const pool = getPool()
+  const result = await pool.query(
+    `SELECT * FROM summaries WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`,
+    [sessionId]
+  )
+  if (result.rows.length === 0) return null
+  const row = result.rows[0]
+  // Parse JSON arrays if stored as strings
+  return {
+    ...row,
+    statements: typeof row.statements === 'string' ? JSON.parse(row.statements) : (row.statements || []),
+    questions: typeof row.questions === 'string' ? JSON.parse(row.questions) : (row.questions || []),
+    follow_ups: typeof row.follow_ups === 'string' ? JSON.parse(row.follow_ups) : (row.follow_ups || [])
+  }
+}
+
+export async function listSessionsWithTags(limit = 50, offset = 0): Promise<any[]> {
+  const pool = getPool()
+  const result = await pool.query(
+    `SELECT s.*,
+       COALESCE(
+         json_agg(json_build_object('id', t.id, 'name', t.name, 'color', t.color))
+         FILTER (WHERE t.id IS NOT NULL),
+         '[]'
+       ) AS tags
+     FROM sessions s
+     LEFT JOIN session_tags st ON st.session_id = s.id
+     LEFT JOIN tags t ON t.id = st.tag_id
+     GROUP BY s.id
+     ORDER BY s.created_at DESC
+     LIMIT $1 OFFSET $2`,
+    [limit, offset]
+  )
+  return result.rows
+}

@@ -10,7 +10,7 @@ import crypto from 'crypto'
 import path from 'path'
 import os from 'os'
 import { processPostMeeting } from '../pipeline/post-meeting'
-import { createSession, updateSession, listSessions, getSession, deleteSession, saveTranscripts, saveSummary, getSessionTranscripts } from '../db/sessions'
+import { createSession, updateSession, listSessions, getSession, deleteSession, saveTranscripts, saveSummary, getSessionTranscripts, getSessionSummary, listSessionsWithTags } from '../db/sessions'
 import { createTag, listTags, deleteTag, tagSession, untagSession, getSessionTags } from '../db/tags'
 import { createSpeakerProfile, listSpeakerProfiles, updateSpeakerProfile, assignSpeakerToSession, getSessionSpeakers } from '../db/speakers'
 import { uploadSessionAudio, uploadSessionTranscript, uploadSessionSummary } from '../storage/s3-client'
@@ -351,6 +351,54 @@ export function initializeHandlers(window: BrowserWindow) {
           await Promise.allSettled(saveOps)
           console.log('[IPC] All post-meeting saves completed')
 
+          // Auto-generate title and tags from the summary
+          if (sid && finalSummary) {
+            try {
+              const OpenAI = (await import('openai')).default
+              const openai = new OpenAI({ apiKey })
+              const docContent = summaryEngine.getState()?.documentSummary || ''
+              const statementsText = (summaryEngine.getState()?.statements || []).join('. ')
+              const contextText = (docContent + '\n' + statementsText).slice(0, 2000)
+
+              const titleTagResult = await openai.chat.completions.create({
+                model: 'gpt-4o-mini',
+                temperature: 0.3,
+                max_tokens: 100,
+                messages: [{
+                  role: 'user',
+                  content: `Based on this meeting summary, generate:
+1. A concise title (3-6 words) describing the main topic
+2. Exactly 3 relevant hashtag keywords (single words, no #)
+
+Summary:
+${contextText}
+
+Respond in this exact JSON format:
+{"title": "...", "tags": ["word1", "word2", "word3"]}`
+                }],
+                response_format: { type: 'json_object' }
+              })
+
+              const parsed = JSON.parse(titleTagResult.choices[0]?.message?.content || '{}')
+              if (parsed.title) {
+                await updateSession(sid, { title: parsed.title } as any)
+                console.log(`[IPC] Auto-title set: "${parsed.title}"`)
+              }
+              if (parsed.tags && Array.isArray(parsed.tags)) {
+                const TAG_COLORS = ['#6366f1', '#06b6d4', '#22c55e', '#f59e0b', '#ef4444', '#ec4899']
+                for (let i = 0; i < Math.min(parsed.tags.length, 3); i++) {
+                  const tagName = String(parsed.tags[i]).toLowerCase().trim()
+                  if (!tagName) continue
+                  const tag = await createTag(tagName, TAG_COLORS[i % TAG_COLORS.length])
+                  await tagSession(sid, tag.id)
+                }
+                console.log(`[IPC] Auto-tags set: ${parsed.tags.join(', ')}`)
+              }
+            } catch (err) {
+              console.error('[IPC] Auto title/tag generation failed:', err)
+            }
+          }
+
           safeSend('post-meeting-status', { processing: false })
         }).catch(err => {
           console.error('[IPC] Post-meeting error:', err)
@@ -400,16 +448,17 @@ export function initializeHandlers(window: BrowserWindow) {
 
   // --- Session handlers ---
   ipcMain.handle('list-sessions', async () => {
-    return await listSessions()
+    return await listSessionsWithTags()
   })
 
   ipcMain.handle('get-session', async (_event, id: string) => {
     const session = await getSession(id)
     if (!session) return null
     const transcripts = await getSessionTranscripts(id)
+    const summary = await getSessionSummary(id)
     const tags = await getSessionTags(id)
     const speakers = await getSessionSpeakers(id)
-    return { session, transcripts, tags, speakers }
+    return { session, transcripts, summary, tags, speakers }
   })
 
   ipcMain.handle('delete-session', async (_event, id: string) => {
