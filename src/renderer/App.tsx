@@ -5,6 +5,7 @@ import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './components/MermaidBlock'
 import { Sidebar, SidebarHandle } from './components/Sidebar'
+import { ChatWidget } from './components/ChatWidget'
 
 type AppView = 'sessions' | 'recording' | 'viewing'
 
@@ -38,6 +39,10 @@ function App() {
   const [apiKey, setApiKey] = useState('')
   const [apiProvider, setApiProvider] = useState<'openai' | 'gemini'>('gemini')
   const [language, setLanguage] = useState('English')
+  const [searchQuery, setSearchQuery] = useState('')
+  const [searchResults, setSearchResults] = useState<any[] | null>(null)
+  const [searching, setSearching] = useState(false)
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const sidebarRef = useRef<SidebarHandle>(null)
   const transcriptEndRef = useRef<HTMLDivElement>(null)
@@ -111,6 +116,22 @@ function App() {
     setShowSettings(false)
   }
 
+  const handleSearch = (query: string) => {
+    setSearchQuery(query)
+    if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
+    if (!query.trim()) { setSearchResults(null); return }
+    searchTimeoutRef.current = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const results = await window.meetsense?.searchKnowledge(query)
+        setSearchResults(results || [])
+      } catch {
+        setSearchResults([])
+      }
+      setSearching(false)
+    }, 500)
+  }
+
   return (
     <div className="app-layout">
       <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} isRecording={state === 'capturing'} />
@@ -153,6 +174,33 @@ function App() {
           <header className="topbar">
             <div className="topbar__left">
               <span className="topbar__logo">🧠 MeetSense</span>
+            </div>
+            <div className="topbar__center">
+              <div className="search-bar">
+                <span className="search-bar__icon">🔍</span>
+                <input
+                  type="text"
+                  className="search-bar__input"
+                  placeholder="Search across all meetings..."
+                  value={searchQuery}
+                  onChange={e => handleSearch(e.target.value)}
+                />
+                {searching && <span className="search-bar__spinner" />}
+                {searchResults !== null && (
+                  <div className="search-results">
+                    {searchResults.length === 0 ? (
+                      <div className="search-results__empty">No matches found</div>
+                    ) : (
+                      searchResults.slice(0, 5).map((r: any, i: number) => (
+                        <div key={i} className="search-results__item" onClick={() => { setSearchQuery(''); setSearchResults(null) }}>
+                          <div className="search-results__text">{(r.content || r.text || '').slice(0, 120)}...</div>
+                        </div>
+                      ))
+                    )}
+                    <button className="search-results__close" onClick={() => { setSearchQuery(''); setSearchResults(null) }}>Close</button>
+                  </div>
+                )}
+              </div>
             </div>
             <div className="topbar__right">
               <button className="btn btn--icon" onClick={() => setShowSettings(true)} title="Settings">⚙️</button>
@@ -560,6 +608,7 @@ function App() {
         </>
       )}
       </div>
+      <ChatWidget />
     </div>
   )
 }
