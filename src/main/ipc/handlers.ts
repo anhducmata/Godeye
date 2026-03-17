@@ -209,6 +209,9 @@ export function initializeHandlers(window: BrowserWindow) {
     summaryEngine.on('summary', (state: SummaryState) => {
       safeSend('summary', state)
     })
+    summaryEngine.on('tokens', (total: number) => {
+      safeSend('tokens', total)
+    })
 
     // Start audio + summary
     audioCapturer.start()

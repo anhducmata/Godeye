@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld('meetsense', {
   onTranscriptInterim: (cb: Function) => ipcRenderer.on('transcript-interim', (_e, data) => cb(data)),
   onVisualNote: (cb: Function) => ipcRenderer.on('visual-note', (_e, data) => cb(data)),
   onSummary: (cb: Function) => ipcRenderer.on('summary', (_e, data) => cb(data)),
+  onTokens: (cb: Function) => ipcRenderer.on('tokens', (_e, data) => cb(data)),
   onStartAudioCapture: (cb: Function) => ipcRenderer.on('start-audio-capture', (_e, config) => cb(config)),
   onStopAudioCapture: (cb: Function) => ipcRenderer.on('stop-audio-capture', () => cb()),
 

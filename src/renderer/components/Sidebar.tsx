@@ -17,6 +17,7 @@ interface SidebarProps {
   onGoHome: () => void
   isRecording: boolean
   isProcessing: boolean
+  tokenCount: number
 }
 
 export interface SidebarHandle {
@@ -52,7 +53,13 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, onOpenAuth, onGoHome, isRecording, isProcessing }, ref) {
+function formatTokens(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}m tokens`
+  if (count >= 1_000) return `${(count / 1_000).toFixed(0)}k tokens`
+  return `${count} tokens`
+}
+
+export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, onOpenAuth, onGoHome, isRecording, isProcessing, tokenCount }, ref) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -185,6 +192,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
 
       <div className="sidebar__footer">
         <button className="sidebar__settings" onClick={onOpenSettings} title="Settings">⚙️</button>
+        {tokenCount > 0 && <span className="sidebar__tokens">{formatTokens(tokenCount)}</span>}
         <button className="sidebar__auth" onClick={onOpenAuth}>Sign In</button>
       </div>
     </aside>

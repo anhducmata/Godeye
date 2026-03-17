@@ -69,7 +69,7 @@ function App() {
     startCapture, stopCapture
   } = useCapture()
 
-  const { transcripts, interimTranscript, interimWhisperTranscript, summary, postMeetingProcessing, clearAll, startListening, stopListening } = useTranscript()
+  const { transcripts, interimTranscript, interimWhisperTranscript, summary, postMeetingProcessing, tokenCount, clearAll, startListening, stopListening } = useTranscript()
 
   const [view, setView] = useState<AppView>('sessions')
   const [loadedSession, setLoadedSession] = useState<LoadedSession | null>(null)
@@ -188,7 +188,7 @@ function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} onOpenAuth={() => setShowAuth(true)} onGoHome={() => { setView('sessions'); setLoadedSession(null) }} isRecording={state === 'capturing'} isProcessing={!!postMeetingProcessing} />
+      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} onOpenAuth={() => setShowAuth(true)} onGoHome={() => { setView('sessions'); setLoadedSession(null) }} isRecording={state === 'capturing'} isProcessing={!!postMeetingProcessing} tokenCount={tokenCount} />
       <div className="app">
 
       {/* Settings Modal */}
@@ -281,11 +281,29 @@ function App() {
                     {searchResults.length === 0 ? (
                       <div className="search-results__empty">No matches found</div>
                     ) : (
-                      searchResults.slice(0, 5).map((r: any, i: number) => (
-                        <div key={i} className="search-results__item" onClick={() => { setSearchQuery(''); setSearchResults(null) }}>
-                          <div className="search-results__text">{(r.content || r.text || '').slice(0, 120)}...</div>
-                        </div>
-                      ))
+                      searchResults.slice(0, 8).map((r: any, i: number) => {
+                        const text = (r.content || r.text || '').slice(0, 200)
+                        const query = searchQuery.toLowerCase()
+                        const idx = text.toLowerCase().indexOf(query)
+                        return (
+                          <div key={i} className="search-results__item" onClick={() => {
+                            if (r.session_id) handleLoadSession(r.session_id)
+                            setSearchQuery(''); setSearchResults(null)
+                          }}>
+                            {r.session_title && (
+                              <div className="search-results__session">
+                                <span className="search-results__session-icon">📝</span>
+                                {r.session_title}
+                              </div>
+                            )}
+                            <div className="search-results__text" dangerouslySetInnerHTML={{
+                              __html: idx >= 0
+                                ? text.slice(0, idx) + '<mark>' + text.slice(idx, idx + query.length) + '</mark>' + text.slice(idx + query.length)
+                                : text
+                            }} />
+                          </div>
+                        )
+                      })
                     )}
                     <button className="search-results__close" onClick={() => { setSearchQuery(''); setSearchResults(null) }}>Close</button>
                   </div>
@@ -350,16 +368,6 @@ function App() {
       {view === 'viewing' && loadedSession && (
         <>
           <header className="topbar">
-            <div className="topbar__left">
-              <span className="topbar__session-title">{loadedSession.session.title || 'Untitled Session'}</span>
-              {loadedSession.tags.length > 0 && (
-                <div className="topbar__tags">
-                  {loadedSession.tags.map((tag: any) => (
-                    <span key={tag.id} className="topbar__tag" style={{ color: tag.color }}>#{tag.name}</span>
-                  ))}
-                </div>
-              )}
-            </div>
             <div className="topbar__right">
               <span className="topbar__meta">
                 {new Date(loadedSession.session.created_at).toLocaleString()}
@@ -367,6 +375,17 @@ function App() {
               </span>
             </div>
           </header>
+
+          <div className="session-header">
+            <h2 className="session-header__title">{loadedSession.session.title || 'Untitled Session'}</h2>
+            {loadedSession.tags.length > 0 && (
+              <div className="session-header__tags">
+                {loadedSession.tags.map((tag: any) => (
+                  <span key={tag.id} className="session-header__tag" style={{ color: tag.color }}>#{tag.name}</span>
+                ))}
+              </div>
+            )}
+          </div>
 
           <main className="columns">
             {/* Column 1: Transcript */}

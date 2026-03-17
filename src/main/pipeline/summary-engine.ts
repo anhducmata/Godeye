@@ -25,6 +25,8 @@ export interface SummaryState {
   documentType?: string
 }
 
+let _totalTokens = 0
+
 const SUMMARY_PROMPT = `You are a meeting/session observer AI analyzing a live discussion.
 
 You receive two streams of data:
@@ -230,6 +232,10 @@ export class SummaryEngine extends EventEmitter {
 
     const data = await response.json()
     const content = data.choices?.[0]?.message?.content
+    if (data.usage?.total_tokens) {
+      _totalTokens += data.usage.total_tokens
+      this.emit('tokens', _totalTokens)
+    }
     if (!content) return null
     
     // Strip markdown codeblocks just in case the LLM didn't respect response_format strictly
@@ -260,6 +266,10 @@ export class SummaryEngine extends EventEmitter {
 
     const data = await response.json()
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text
+    if (data.usageMetadata?.totalTokenCount) {
+      _totalTokens += data.usageMetadata.totalTokenCount
+      this.emit('tokens', _totalTokens)
+    }
     if (!content) return null
 
     // Strip markdown codeblocks
@@ -273,6 +283,10 @@ export class SummaryEngine extends EventEmitter {
 
   getBuffer(): ContextEntry[] {
     return [...this.buffer]
+  }
+
+  getTokens(): number {
+    return _totalTokens
   }
 
   reset() {
