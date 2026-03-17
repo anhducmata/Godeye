@@ -21,21 +21,21 @@ export class WhisperTranscriber extends EventEmitter {
   private checkIntervalMs = 500 // Check audio levels every 500ms
   private checkTimer: ReturnType<typeof setInterval> | null = null
   private isRunning = false
-  private minSamples: number // Minimum samples to send (4 seconds target)
-  private maxSamples: number // Max samples to buffer before force flush (12 seconds)
+  private minSamples: number // Minimum samples to send (10 seconds target)
+  private maxSamples: number // Max samples to buffer before force flush (20 seconds)
   private lastTranscribedText: string = ''
 
   constructor() {
     super()
-    this.minSamples = this.sampleRate * 4 // target 4 seconds
-    this.maxSamples = this.sampleRate * 12 // max 12 seconds
+    this.minSamples = this.sampleRate * 10 // target 10 seconds
+    this.maxSamples = this.sampleRate * 20 // max 20 seconds
   }
 
   configure(apiKey: string, sampleRate = 16000) {
     this.apiKey = apiKey
     this.sampleRate = sampleRate
-    this.minSamples = sampleRate * 4
-    this.maxSamples = sampleRate * 12
+    this.minSamples = sampleRate * 10
+    this.maxSamples = sampleRate * 20
     console.log(`[WhisperTranscriber] Configured: sampleRate=${sampleRate}`)
   }
 
