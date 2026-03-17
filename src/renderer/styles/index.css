@@ -80,12 +80,21 @@ body {
 .sidebar--collapsed {
   width: 52px;
   min-width: 52px;
-  cursor: pointer;
+  cursor: default;
   display: flex;
-  align-items: center;
-  justify-content: center;
+  flex-direction: column;
   padding-top: 0;
   background: linear-gradient(180deg, var(--bg-card) 0%, rgba(99, 102, 241, 0.03) 100%);
+}
+
+.sidebar--collapsed .sidebar__header {
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 8px;
+}
+
+.sidebar--collapsed .sidebar__collapse {
+  font-size: 11px;
 }
 
 .sidebar--collapsed:hover {
@@ -211,7 +220,10 @@ body {
   border-radius: var(--radius-sm);
   cursor: pointer;
   transition: background 0.15s;
-  margin-bottom: 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  position: relative;
 }
 
 .session-card:hover {
@@ -339,6 +351,7 @@ body {
   cursor: pointer;
   font-family: var(--font);
   font-weight: 500;
+  white-space: nowrap;
   transition: all 0.15s;
 }
 
@@ -349,8 +362,9 @@ body {
 
 /* 3-dot menu on session cards */
 .session-card__menu-wrap {
-  position: relative;
-  margin-left: auto;
+  position: absolute;
+  top: 8px;
+  right: 8px;
 }
 
 .session-card__dots {
@@ -449,13 +463,53 @@ body {
 }
 
 .topbar__logo {
-  font-size: 16px;
-  font-weight: 700;
+  font-weight: 600;
+  font-size: 14px;
   letter-spacing: -0.03em;
   background: linear-gradient(135deg, var(--accent-2), var(--cyan));
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
+}
+
+.topbar__logo--clickable {
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.topbar__logo--clickable:hover {
+  opacity: 0.7;
+}
+
+/* Auth Tabs */
+.auth-tabs {
+  display: flex;
+  gap: 0;
+  margin-bottom: 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+
+.auth-tab {
+  flex: 1;
+  padding: 8px 12px;
+  background: var(--bg-input);
+  border: none;
+  color: var(--text-3);
+  font-family: var(--font);
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.auth-tab--active {
+  background: var(--accent);
+  color: white;
+}
+
+.auth-tab:hover:not(.auth-tab--active) {
+  color: var(--text);
 }
 
 .topbar__live {

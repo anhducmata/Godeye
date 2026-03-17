@@ -13,6 +13,7 @@ interface Session {
 interface SidebarProps {
   onLoadSession: (id: string) => void
   onOpenSettings: () => void
+  onOpenAuth: () => void
   isRecording: boolean
 }
 
@@ -49,7 +50,7 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, isRecording }, ref) {
+export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, onOpenAuth, isRecording }, ref) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [collapsed, setCollapsed] = useState(false)
@@ -62,6 +63,14 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
   useEffect(() => {
     loadSessions()
   }, [])
+
+  // Close 3-dot menu on click outside
+  useEffect(() => {
+    if (!menuSessionId) return
+    const handleClick = () => setMenuSessionId(null)
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [menuSessionId])
 
   const loadSessions = async () => {
     try {
@@ -100,8 +109,11 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
 
   if (collapsed) {
     return (
-      <aside className="sidebar sidebar--collapsed" onClick={() => setCollapsed(false)}>
-        <div className="sidebar__expand">☰</div>
+      <aside className="sidebar sidebar--collapsed">
+        <div className="sidebar__header">
+          <span className="sidebar__brand">🧠</span>
+          <button className="sidebar__collapse" onClick={() => setCollapsed(false)}>▶</button>
+        </div>
       </aside>
     )
   }
@@ -135,6 +147,19 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
             className="session-card"
             onClick={() => onLoadSession(session.id)}
           >
+            <div className="session-card__menu-wrap">
+              <button
+                className="session-card__dots"
+                onClick={(e) => toggleMenu(session.id, e)}
+              >⋮</button>
+              {menuSessionId === session.id && (
+                <div className="session-card__menu">
+                  <button onClick={(e) => handleExport('md', e)}>📄 Export MD</button>
+                  <button onClick={(e) => handleExport('json', e)}>📋 Export JSON</button>
+                  <button className="session-card__menu-delete" onClick={(e) => handleDelete(session.id, e)}>🗑️ Delete</button>
+                </div>
+              )}
+            </div>
             <div className="session-card__header">
               <span className="session-card__icon">{DOC_TYPE_ICONS[session.document_type] || '📝'}</span>
               <span className="session-card__title">{session.title || 'Untitled Session'}</span>
@@ -153,19 +178,6 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
               {session.duration_seconds && (
                 <span className="session-card__duration">{formatDuration(session.duration_seconds)}</span>
               )}
-              <div className="session-card__menu-wrap">
-                <button
-                  className="session-card__dots"
-                  onClick={(e) => toggleMenu(session.id, e)}
-                >⋯</button>
-                {menuSessionId === session.id && (
-                  <div className="session-card__menu">
-                    <button onClick={(e) => handleExport('md', e)}>📄 Export MD</button>
-                    <button onClick={(e) => handleExport('json', e)}>📋 Export JSON</button>
-                    <button className="session-card__menu-delete" onClick={(e) => handleDelete(session.id, e)}>🗑️ Delete</button>
-                  </div>
-                )}
-              </div>
             </div>
           </div>
         ))}
@@ -173,7 +185,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
 
       <div className="sidebar__footer">
         <button className="sidebar__settings" onClick={onOpenSettings} title="Settings">⚙️</button>
-        <button className="sidebar__auth" onClick={() => {}}>Sign In</button>
+        <button className="sidebar__auth" onClick={onOpenAuth}>Sign In</button>
         <button className="sidebar__refresh" onClick={loadSessions}>↻ Refresh</button>
       </div>
     </aside>

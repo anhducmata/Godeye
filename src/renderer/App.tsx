@@ -35,6 +35,8 @@ function App() {
   const [view, setView] = useState<AppView>('sessions')
   const [loadedSession, setLoadedSession] = useState<LoadedSession | null>(null)
   const [showSettings, setShowSettings] = useState(false)
+  const [showAuth, setShowAuth] = useState(false)
+  const [authTab, setAuthTab] = useState<'signin' | 'register'>('signin')
   const [showDebug, setShowDebug] = useState(false)
   const [apiKey, setApiKey] = useState('')
   const [apiProvider, setApiProvider] = useState<'openai' | 'gemini'>('gemini')
@@ -134,7 +136,7 @@ function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} isRecording={state === 'capturing'} />
+      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} onOpenAuth={() => setShowAuth(true)} isRecording={state === 'capturing'} />
       <div className="app">
 
       {/* Settings Modal */}
@@ -161,6 +163,37 @@ function App() {
             <div className="modal__actions">
               <button className="btn" onClick={() => setShowSettings(false)}>Cancel</button>
               <button className="btn btn--primary" onClick={handleSaveSettings}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Auth Modal */}
+      {showAuth && (
+        <div className="modal-overlay" onClick={() => setShowAuth(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2 className="modal__title">{authTab === 'signin' ? 'Sign In' : 'Create Account'}</h2>
+            <div className="auth-tabs">
+              <button className={`auth-tab ${authTab === 'signin' ? 'auth-tab--active' : ''}`} onClick={() => setAuthTab('signin')}>Sign In</button>
+              <button className={`auth-tab ${authTab === 'register' ? 'auth-tab--active' : ''}`} onClick={() => setAuthTab('register')}>Register</button>
+            </div>
+            <div className="modal__field">
+              <label>Email</label>
+              <input type="email" placeholder="you@example.com" />
+            </div>
+            <div className="modal__field">
+              <label>Password</label>
+              <input type="password" placeholder="••••••••" />
+            </div>
+            {authTab === 'register' && (
+              <div className="modal__field">
+                <label>Confirm Password</label>
+                <input type="password" placeholder="••••••••" />
+              </div>
+            )}
+            <div className="modal__actions">
+              <button className="btn" onClick={() => setShowAuth(false)}>Cancel</button>
+              <button className="btn btn--primary">{authTab === 'signin' ? 'Sign In' : 'Register'}</button>
             </div>
           </div>
         </div>
@@ -261,7 +294,7 @@ function App() {
         <>
           <header className="topbar">
             <div className="topbar__left">
-              <button className="btn btn--sm" onClick={() => { setView('sessions'); setLoadedSession(null) }}>← Back</button>
+              <span className="topbar__logo topbar__logo--clickable" onClick={() => { setView('sessions'); setLoadedSession(null) }}>🧠 MeetSense</span>
               <span className="topbar__session-title">{loadedSession.session.title || 'Untitled Session'}</span>
               {loadedSession.tags.length > 0 && (
                 <div className="topbar__tags">
