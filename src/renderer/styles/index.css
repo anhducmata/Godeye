@@ -1371,6 +1371,7 @@ body {
   bottom: 76px;
   right: 20px;
   width: 340px;
+  max-height: calc(100vh - 100px);
   height: 440px;
   background: var(--bg-card);
   border: 1px solid var(--border-lit);
