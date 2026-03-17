@@ -379,7 +379,7 @@ function App() {
                       <div key={i} className={`chat-bubble ${entry.source === 'whisper' ? 'chat-bubble--primary' : 'chat-bubble--secondary'}`}>
                         <div className="chat-bubble__meta">
                           <span className="chat-bubble__speaker">
-                            {entry.speaker || (entry.source === 'whisper' ? '🎙️ Whisper' : '🗣️ Instant')}
+                            {entry.speaker ? entry.speaker.replace(/SPEAKER_(\d+)/g, (_: string, n: string) => `Person ${parseInt(n) + 1}`) : `Person 1`}
                           </span>
                           <span className="chat-bubble__time">{formatTime(Math.floor(entry.start_sec || 0))}</span>
                         </div>
@@ -515,9 +515,7 @@ function App() {
                     {transcripts.map(entry => (
                       <div key={entry.id} className={`chat-bubble ${entry.source === 'whisper' ? 'chat-bubble--primary' : 'chat-bubble--secondary'}`}>
                         <div className="chat-bubble__meta">
-                          <span className="chat-bubble__speaker">
-                            {entry.source === 'whisper' ? '🎙️ Whisper' : '🗣️ Instant'}
-                          </span>
+                          <span className="chat-bubble__speaker">Person 1</span>
                           <span className="chat-bubble__time">{formatTime(Math.floor(entry.start || 0))}</span>
                           {entry.audioUrl && (
                             <button
@@ -538,7 +536,7 @@ function App() {
                     {interimTranscript && (
                       <div className="chat-bubble chat-bubble--interim">
                         <div className="chat-bubble__meta">
-                          <span className="chat-bubble__speaker">🗣️ Instant</span>
+                          <span className="chat-bubble__speaker">Person 1</span>
                           <span className="chat-bubble__time">...</span>
                         </div>
                         <div className="chat-bubble__text typing-text">{interimTranscript}</div>
@@ -548,7 +546,7 @@ function App() {
                     {interimWhisperTranscript && (
                       <div className="chat-bubble chat-bubble--interim" style={{ color: 'gray', fontStyle: 'italic' }}>
                         <div className="chat-bubble__meta">
-                          <span className="chat-bubble__speaker">🎙️ Whisper</span>
+                          <span className="chat-bubble__speaker">Person 1</span>
                           <span className="chat-bubble__time">...</span>
                         </div>
                         <div className="chat-bubble__text typing-text">{interimWhisperTranscript}</div>
