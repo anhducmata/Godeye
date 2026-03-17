@@ -391,10 +391,6 @@ function App() {
                   </div>
                 )}
               </div>
-              <div className="col__foot">
-                <button className="btn btn--sm" onClick={() => window.meetsense?.exportMarkdown()}>📄 Export MD</button>
-                <button className="btn btn--sm" onClick={() => window.meetsense?.exportJSON()}>📋 Export JSON</button>
-              </div>
             </section>
           </main>
         </>

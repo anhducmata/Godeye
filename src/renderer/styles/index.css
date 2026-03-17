@@ -328,6 +328,89 @@ body {
   color: var(--text);
 }
 
+.sidebar__auth {
+  flex: 1;
+  background: none;
+  border: 1px solid var(--accent);
+  color: var(--accent);
+  font-size: 11px;
+  padding: 6px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-family: var(--font);
+  font-weight: 500;
+  transition: all 0.15s;
+}
+
+.sidebar__auth:hover {
+  background: var(--accent);
+  color: white;
+}
+
+/* 3-dot menu on session cards */
+.session-card__menu-wrap {
+  position: relative;
+  margin-left: auto;
+}
+
+.session-card__dots {
+  background: none;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 4px;
+  opacity: 0;
+  transition: all 0.15s;
+  font-family: var(--font);
+  line-height: 1;
+}
+
+.session-card:hover .session-card__dots {
+  opacity: 1;
+}
+
+.session-card__dots:hover {
+  color: var(--text);
+}
+
+.session-card__menu {
+  position: absolute;
+  right: 0;
+  top: calc(100% + 4px);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.4);
+  z-index: 50;
+  min-width: 140px;
+  overflow: hidden;
+  animation: fadeIn 0.15s ease;
+}
+
+.session-card__menu button {
+  display: block;
+  width: 100%;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  color: var(--text-2);
+  font-family: var(--font);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.1s;
+}
+
+.session-card__menu button:hover {
+  background: var(--bg-hover);
+  color: var(--text);
+}
+
+.session-card__menu-delete:hover {
+  color: var(--red) !important;
+}
+
 .sidebar__refresh {
   width: 100%;
   background: none;

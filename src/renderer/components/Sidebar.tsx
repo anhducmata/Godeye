@@ -53,6 +53,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
   const [sessions, setSessions] = useState<Session[]>([])
   const [searchQuery, setSearchQuery] = useState('')
   const [collapsed, setCollapsed] = useState(false)
+  const [menuSessionId, setMenuSessionId] = useState<string | null>(null)
 
   useImperativeHandle(ref, () => ({
     refresh: () => loadSessions()
@@ -76,7 +77,20 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
     e.stopPropagation()
     if (!confirm('Delete this session?')) return
     await window.meetsense?.deleteSession(id)
+    setMenuSessionId(null)
     loadSessions()
+  }
+
+  const handleExport = (type: 'md' | 'json', e: React.MouseEvent) => {
+    e.stopPropagation()
+    if (type === 'md') window.meetsense?.exportMarkdown()
+    else window.meetsense?.exportJSON()
+    setMenuSessionId(null)
+  }
+
+  const toggleMenu = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation()
+    setMenuSessionId(menuSessionId === id ? null : id)
   }
 
   const filtered = sessions.filter(s => {
@@ -139,10 +153,19 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
               {session.duration_seconds && (
                 <span className="session-card__duration">{formatDuration(session.duration_seconds)}</span>
               )}
-              <button
-                className="session-card__delete"
-                onClick={(e) => handleDelete(session.id, e)}
-              >×</button>
+              <div className="session-card__menu-wrap">
+                <button
+                  className="session-card__dots"
+                  onClick={(e) => toggleMenu(session.id, e)}
+                >⋯</button>
+                {menuSessionId === session.id && (
+                  <div className="session-card__menu">
+                    <button onClick={(e) => handleExport('md', e)}>📄 Export MD</button>
+                    <button onClick={(e) => handleExport('json', e)}>📋 Export JSON</button>
+                    <button className="session-card__menu-delete" onClick={(e) => handleDelete(session.id, e)}>🗑️ Delete</button>
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         ))}
@@ -150,6 +173,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
 
       <div className="sidebar__footer">
         <button className="sidebar__settings" onClick={onOpenSettings} title="Settings">⚙️</button>
+        <button className="sidebar__auth" onClick={() => {}}>Sign In</button>
         <button className="sidebar__refresh" onClick={loadSessions}>↻ Refresh</button>
       </div>
     </aside>
