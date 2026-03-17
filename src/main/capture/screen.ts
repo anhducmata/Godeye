@@ -89,22 +89,29 @@ export class ScreenCapturer extends EventEmitter {
   private async captureFrame(): Promise<void> {
     if (!this.sourceId || !this.isCapturing) return
 
+    console.log('[ScreenCapturer] captureFrame() called, sourceId:', this.sourceId)
+
     const sources = await desktopCapturer.getSources({
       types: ['screen', 'window'],
       thumbnailSize: { width: 1920, height: 1080 }
     })
 
+    console.log('[ScreenCapturer] Found', sources.length, 'sources:', sources.map(s => `${s.name}(${s.id})`).join(', '))
+
     const source = sources.find(s => s.id === this.sourceId)
     if (!source) {
-      console.warn('[ScreenCapturer] Source not found:', this.sourceId)
+      console.warn('[ScreenCapturer] ❌ Source not found:', this.sourceId, '- available:', sources.map(s => s.id))
       return
     }
 
     let thumbnail = source.thumbnail
+    const thumbSize = thumbnail.getSize()
+    console.log(`[ScreenCapturer] Thumbnail size: ${thumbSize.width}×${thumbSize.height}, isEmpty: ${thumbnail.isEmpty()}`)
 
     // Crop if region is set
     if (this.cropRegion) {
       const { x, y, width, height } = this.cropRegion
+      console.log(`[ScreenCapturer] Cropping to: ${x},${y} ${width}×${height}`)
       thumbnail = thumbnail.crop({
         x: Math.round(x),
         y: Math.round(y),
@@ -113,14 +120,18 @@ export class ScreenCapturer extends EventEmitter {
       })
     }
 
+    const dataUrl = thumbnail.toDataURL()
+    console.log(`[ScreenCapturer] Frame data URL length: ${dataUrl.length} chars, starts with: ${dataUrl.substring(0, 30)}`)
+
     const frame: CaptureFrame = {
       timestamp: Date.now(),
-      dataUrl: thumbnail.toDataURL(),
+      dataUrl,
       width: thumbnail.getSize().width,
       height: thumbnail.getSize().height
     }
 
     this.emit('frame', frame)
+    console.log(`[ScreenCapturer] ✅ Frame emitted: ${frame.width}×${frame.height}`)
   }
 
   /**

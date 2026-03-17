@@ -1,6 +1,7 @@
 import React, { useRef, useEffect, useState } from 'react'
 import { useCapture } from './hooks/useCapture'
 import { useTranscript } from './hooks/useTranscript'
+
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0')
   const s = (seconds % 60).toString().padStart(2, '0')
@@ -11,31 +12,40 @@ function App() {
   const {
     state, sources, selectedSource, setSelectedSource,
     cropRegion, options, setOptions, latestFrame, elapsed,
-    loadSources, selectArea, startCapture, stopCapture
+    loadSources, selectArea, startCapture, stopCapture,
+    frameCount, debugLogs, addDebugLog
   } = useCapture()
 
   const { transcripts, visualNotes, summary, clearAll } = useTranscript()
 
   const [showSettings, setShowSettings] = useState(false)
+  const [showDebug, setShowDebug] = useState(true)
   const [apiKey, setApiKey] = useState('')
   const [apiProvider, setApiProvider] = useState<'openai' | 'gemini'>('openai')
 
   const transcriptEndRef = useRef<HTMLDivElement>(null)
+  const debugEndRef = useRef<HTMLDivElement>(null)
 
   // Auto-scroll transcript
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [transcripts])
 
+  // Auto-scroll debug
+  useEffect(() => {
+    debugEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [debugLogs])
+
   const handleStart = async () => {
     if (!selectedSource) {
+      addDebugLog('⚠️ No source selected — loading sources...')
       await loadSources()
       return
     }
-    // Set API key before starting
     if (apiKey) {
       await window.godeye.setApiKey({ apiKey, provider: apiProvider })
     }
+    addDebugLog(`▶ Starting capture: source="${selectedSource.name}", crop=${cropRegion ? `${cropRegion.width}×${cropRegion.height}` : 'none'}`)
     clearAll()
     await startCapture()
   }
@@ -51,6 +61,7 @@ function App() {
   const handleSaveSettings = async () => {
     if (apiKey) {
       await window.godeye.setApiKey({ apiKey, provider: apiProvider })
+      addDebugLog(`⚙️ API key set for ${apiProvider}`)
     }
     setShowSettings(false)
   }
@@ -111,7 +122,10 @@ function App() {
             value={selectedSource?.id || ''}
             onChange={e => {
               const src = sources.find(s => s.id === e.target.value)
-              if (src) setSelectedSource(src)
+              if (src) {
+                setSelectedSource(src)
+                addDebugLog(`📺 Selected source: "${src.name}" (${src.id})`)
+              }
             }}
             onClick={() => loadSources()}
           >
@@ -144,11 +158,16 @@ function App() {
           ) : (
             <button className="btn btn--stop" onClick={stopCapture}>⏹ Stop</button>
           )}
+          <button
+            className={`btn btn--debug ${showDebug ? 'btn--debug-active' : ''}`}
+            onClick={() => setShowDebug(!showDebug)}
+            title="Toggle Debug Panel"
+          >🐛</button>
           <button className="btn btn--settings" onClick={() => setShowSettings(true)}>⚙️</button>
         </div>
       </header>
 
-      {/* Main Content — Three Column Layout */}
+      {/* Main Content */}
       <main className="panels">
         {/* Transcript Panel */}
         <section className="panel panel--transcript">
@@ -178,16 +197,32 @@ function App() {
           </div>
         </section>
 
-        {/* Visual Notes Panel */}
+        {/* Visual Notes Panel — with live frame preview */}
         <section className="panel panel--visual">
           <div className="panel__header">
             <h2 className="panel__title">👁 Visual Notes</h2>
             <span className="panel__badge">
-              {state === 'capturing' ? 'OCR' : `${visualNotes.length}`}
+              {state === 'capturing' ? `📷 ${frameCount}` : `${visualNotes.length}`}
             </span>
           </div>
           <div className="panel__content">
-            {visualNotes.length === 0 ? (
+            {/* Live frame preview always shown when capturing */}
+            {state === 'capturing' && latestFrame && (
+              <div className="live-preview">
+                <div className="live-preview__label">
+                  <span className="live-preview__dot"></span>
+                  LIVE PREVIEW
+                </div>
+                <img
+                  src={latestFrame}
+                  className="live-preview__img"
+                  alt="Live capture"
+                />
+              </div>
+            )}
+
+            {/* Visual notes list */}
+            {visualNotes.length === 0 && !latestFrame ? (
               <div className="panel__empty">
                 <p className="panel__empty-icon">🖥️</p>
                 <p>Select a screen area to capture visual context</p>
@@ -214,14 +249,38 @@ function App() {
           </div>
         </section>
 
-        {/* Summary Panel */}
+        {/* Summary / Debug Panel */}
         <section className="panel panel--summary">
           <div className="panel__header">
-            <h2 className="panel__title">🧠 Summary</h2>
-            <span className="panel__badge">AI</span>
+            <h2 className="panel__title">
+              {showDebug ? '🐛 Debug Console' : '🧠 Summary'}
+            </h2>
+            <span className="panel__badge">
+              {showDebug ? `${debugLogs.length} logs` : 'AI'}
+            </span>
           </div>
           <div className="panel__content">
-            {!summary ? (
+            {showDebug ? (
+              /* Debug Console */
+              <div className="debug-console">
+                {debugLogs.length === 0 ? (
+                  <div className="panel__empty">
+                    <p className="panel__empty-icon">🔍</p>
+                    <p>Debug logs will appear here</p>
+                  </div>
+                ) : (
+                  debugLogs.map((log, i) => (
+                    <div key={i} className="debug-entry">
+                      <span className="debug-entry__time">{log.time}</span>
+                      <span className={`debug-entry__msg ${log.level === 'error' ? 'debug-entry__msg--error' : log.level === 'warn' ? 'debug-entry__msg--warn' : ''}`}>
+                        {log.message}
+                      </span>
+                    </div>
+                  ))
+                )}
+                <div ref={debugEndRef} />
+              </div>
+            ) : !summary ? (
               <div className="panel__empty">
                 <p className="panel__empty-icon">✨</p>
                 <p>
@@ -287,7 +346,7 @@ function App() {
       <footer className="timeline">
         <div className="timeline__track">
           <div className="timeline__label">
-            {state === 'capturing' ? `● REC ${formatTime(elapsed)}` : 'Timeline'}
+            {state === 'capturing' ? `● REC ${formatTime(elapsed)} · Frames: ${frameCount}` : 'Timeline'}
           </div>
           {state === 'capturing' && (
             <div className="timeline__bar">

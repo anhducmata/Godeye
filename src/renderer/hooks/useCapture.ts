@@ -42,6 +42,16 @@ export interface CaptureOptions {
   microphone: boolean
 }
 
+export interface DebugLog {
+  time: string
+  message: string
+  level: 'info' | 'warn' | 'error'
+}
+
+function timestamp(): string {
+  return new Date().toLocaleTimeString('en-GB', { hour12: false })
+}
+
 export function useCapture() {
   const [state, setState] = useState<CaptureState>('idle')
   const [sources, setSources] = useState<ScreenSource[]>([])
@@ -49,44 +59,61 @@ export function useCapture() {
   const [cropRegion, setCropRegion] = useState<{ x: number; y: number; width: number; height: number } | null>(null)
   const [options, setOptions] = useState<CaptureOptions>({ systemAudio: true, microphone: true })
   const [latestFrame, setLatestFrame] = useState<string | null>(null)
-  const [startTime, setStartTime] = useState<number>(0)
   const [elapsed, setElapsed] = useState(0)
-  const elapsedTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+  const [frameCount, setFrameCount] = useState(0)
+  const [debugLogs, setDebugLogs] = useState<DebugLog[]>([])
 
   // Audio capture refs
   const mediaStreamRef = useRef<MediaStream | null>(null)
   const audioContextRef = useRef<AudioContext | null>(null)
   const processorRef = useRef<ScriptProcessorNode | null>(null)
 
+  const addDebugLog = useCallback((message: string, level: 'info' | 'warn' | 'error' = 'info') => {
+    setDebugLogs(prev => [...prev.slice(-200), { time: timestamp(), message, level }])
+    console.log(`[Godeye Debug] ${message}`)
+  }, [])
+
   const loadSources = useCallback(async () => {
     try {
+      addDebugLog('🔍 Loading screen sources...')
       const s = await window.godeye.getScreenSources()
       setSources(s)
+      addDebugLog(`✅ Found ${s.length} sources: ${s.map(x => x.name).join(', ')}`)
       if (s.length > 0 && !selectedSource) {
         setSelectedSource(s[0])
+        addDebugLog(`📺 Auto-selected: "${s[0].name}"`)
       }
-    } catch (err) {
-      console.error('Failed to load sources:', err)
+    } catch (err: any) {
+      addDebugLog(`❌ Failed to load sources: ${err?.message || err}`, 'error')
     }
-  }, [selectedSource])
+  }, [selectedSource, addDebugLog])
 
   const selectArea = useCallback(async () => {
     try {
+      addDebugLog('🔲 Opening area selector overlay...')
       const region = await window.godeye.selectArea()
-      setCropRegion(region)
-    } catch (err) {
-      console.error('Failed to select area:', err)
+      if (region) {
+        setCropRegion(region)
+        addDebugLog(`✅ Area selected: ${region.width}×${region.height} at (${region.x}, ${region.y})`)
+      } else {
+        addDebugLog('ℹ️ Area selection cancelled')
+      }
+    } catch (err: any) {
+      addDebugLog(`❌ Area selection error: ${err?.message || err}`, 'error')
     }
-  }, [])
+  }, [addDebugLog])
 
   const startCapture = useCallback(async () => {
     if (!selectedSource) {
-      console.error('No source selected')
+      addDebugLog('⚠️ Cannot start: no source selected', 'warn')
       return
     }
 
     try {
-      await window.godeye.startCapture({
+      addDebugLog(`🚀 Calling startCapture(sourceId="${selectedSource.id}", systemAudio=${options.systemAudio}, mic=${options.microphone})`)
+      setFrameCount(0)
+
+      const result = await window.godeye.startCapture({
         sourceId: selectedSource.id,
         cropRegion: cropRegion || undefined,
         systemAudio: options.systemAudio,
@@ -94,28 +121,23 @@ export function useCapture() {
         fps: 1
       })
 
-      setState('capturing')
-      setStartTime(Date.now())
-
-      // Start elapsed timer
-      elapsedTimerRef.current = setInterval(() => {
-        setElapsed(Date.now() - Date.now() + Date.now() - (startTime || Date.now()))
-      }, 1000)
-
-    } catch (err) {
-      console.error('Failed to start capture:', err)
+      if (result.success) {
+        setState('capturing')
+        addDebugLog('✅ Capture started successfully! Waiting for frames...')
+      } else {
+        addDebugLog('❌ startCapture returned success=false', 'error')
+      }
+    } catch (err: any) {
+      addDebugLog(`❌ startCapture error: ${err?.message || err}`, 'error')
     }
-  }, [selectedSource, cropRegion, options, startTime])
+  }, [selectedSource, cropRegion, options, addDebugLog])
 
   const stopCapture = useCallback(async () => {
     try {
+      addDebugLog('⏹ Stopping capture...')
       await window.godeye.stopCapture()
       setState('idle')
-
-      if (elapsedTimerRef.current) {
-        clearInterval(elapsedTimerRef.current)
-        elapsedTimerRef.current = null
-      }
+      addDebugLog(`✅ Capture stopped. Total frames captured: ${frameCount}`)
 
       // Stop audio streams
       if (mediaStreamRef.current) {
@@ -126,16 +148,25 @@ export function useCapture() {
         audioContextRef.current.close()
         audioContextRef.current = null
       }
-
-    } catch (err) {
-      console.error('Failed to stop capture:', err)
+    } catch (err: any) {
+      addDebugLog(`❌ Stop error: ${err?.message || err}`, 'error')
     }
-  }, [])
+  }, [addDebugLog, frameCount])
 
   // Listen for frames from main process
   useEffect(() => {
     window.godeye.onCaptureFrame((frame) => {
       setLatestFrame(frame.dataUrl)
+      setFrameCount(prev => {
+        const newCount = prev + 1
+        if (newCount === 1) {
+          console.log('[Godeye Debug] 🎉 First frame received!')
+        }
+        if (newCount % 10 === 0) {
+          console.log(`[Godeye Debug] 📷 Frames received: ${newCount}`)
+        }
+        return newCount
+      })
     })
 
     return () => {
@@ -147,31 +178,27 @@ export function useCapture() {
   useEffect(() => {
     const startAudio = async (config: { systemAudio: boolean; microphone: boolean; sampleRate: number }) => {
       try {
-        // Request system audio via desktopCapturer constraint
+        console.log('[Godeye Debug] 🔊 Starting audio capture in renderer...', config)
+
         if (config.systemAudio && selectedSource) {
           const stream = await navigator.mediaDevices.getUserMedia({
             audio: {
               // @ts-ignore - Electron-specific constraint
-              mandatory: {
-                chromeMediaSource: 'desktop'
-              }
+              mandatory: { chromeMediaSource: 'desktop' }
             },
             video: false
           })
 
           mediaStreamRef.current = stream
-          
-          // Create AudioContext and processor for PCM extraction
           const audioCtx = new AudioContext({ sampleRate: config.sampleRate })
           audioContextRef.current = audioCtx
-          
           const source = audioCtx.createMediaStreamSource(stream)
           const processor = audioCtx.createScriptProcessor(4096, 1, 1)
           processorRef.current = processor
 
+          let chunkCount = 0
           processor.onaudioprocess = (e) => {
             const inputData = e.inputBuffer.getChannelData(0)
-            // Convert float32 to int16
             const int16 = new Int16Array(inputData.length)
             for (let i = 0; i < inputData.length; i++) {
               const s = Math.max(-1, Math.min(1, inputData[i]))
@@ -182,18 +209,24 @@ export function useCapture() {
               buffer: int16.buffer,
               source: 'system'
             })
+            chunkCount++
+            if (chunkCount % 50 === 0) {
+              console.log(`[Godeye Debug] 🔊 Audio chunks sent: ${chunkCount}`)
+            }
           }
 
           source.connect(processor)
           processor.connect(audioCtx.destination)
+          console.log('[Godeye Debug] ✅ Audio capture started successfully')
         }
-      } catch (err) {
-        console.error('Audio capture error:', err)
+      } catch (err: any) {
+        console.error('[Godeye Debug] ❌ Audio capture error:', err)
       }
     }
 
     window.godeye.onStartAudioCapture(startAudio)
     window.godeye.onStopAudioCapture(() => {
+      console.log('[Godeye Debug] 🔊 Stopping audio capture in renderer')
       if (processorRef.current) {
         processorRef.current.disconnect()
         processorRef.current = null
@@ -232,19 +265,9 @@ export function useCapture() {
   }, [state])
 
   return {
-    state,
-    sources,
-    selectedSource,
-    setSelectedSource,
-    cropRegion,
-    setCropRegion,
-    options,
-    setOptions,
-    latestFrame,
-    elapsed,
-    loadSources,
-    selectArea,
-    startCapture,
-    stopCapture
+    state, sources, selectedSource, setSelectedSource,
+    cropRegion, setCropRegion, options, setOptions,
+    latestFrame, elapsed, frameCount, debugLogs,
+    loadSources, selectArea, startCapture, stopCapture, addDebugLog
   }
 }
