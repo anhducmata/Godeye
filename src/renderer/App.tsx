@@ -188,7 +188,7 @@ function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} onOpenAuth={() => setShowAuth(true)} isRecording={state === 'capturing'} isProcessing={!!postMeetingProcessing} />
+      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} onOpenAuth={() => setShowAuth(true)} onGoHome={() => { setView('sessions'); setLoadedSession(null) }} isRecording={state === 'capturing'} isProcessing={!!postMeetingProcessing} />
       <div className="app">
 
       {/* Settings Modal */}
@@ -265,9 +265,6 @@ function App() {
       {view === 'sessions' && (
         <>
           <header className="topbar">
-            <div className="topbar__left">
-              <span className="topbar__logo">🧠 MeetSense</span>
-            </div>
             <div className="topbar__center">
               <div className="search-bar">
                 <span className="search-bar__icon">🔍</span>
@@ -354,7 +351,6 @@ function App() {
         <>
           <header className="topbar">
             <div className="topbar__left">
-              <span className="topbar__logo topbar__logo--clickable" onClick={() => { setView('sessions'); setLoadedSession(null) }}>🧠 MeetSense</span>
               <span className="topbar__session-title">{loadedSession.session.title || 'Untitled Session'}</span>
               {loadedSession.tags.length > 0 && (
                 <div className="topbar__tags">
@@ -496,7 +492,6 @@ function App() {
         <>
           <header className="topbar topbar--recording">
             <div className="topbar__left">
-              <span className="topbar__logo">🧠 MeetSense</span>
               <span className="topbar__live">
                 <span className="topbar__dot"></span>
                 REC {formatTime(elapsed)}

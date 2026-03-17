@@ -112,6 +112,15 @@ body {
   color: var(--text);
 }
 
+.sidebar__brand--clickable {
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.sidebar__brand--clickable:hover {
+  opacity: 0.6;
+}
+
 .sidebar__collapse {
   background: none;
   border: none;

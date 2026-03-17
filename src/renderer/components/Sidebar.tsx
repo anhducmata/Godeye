@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useImperativeHandle, forwardRef } from 'react'
+import React, { useEffect, useState, useImperativeHandle, forwardRef, useRef } from 'react'
 
 interface Session {
   id: string
@@ -14,6 +14,7 @@ interface SidebarProps {
   onLoadSession: (id: string) => void
   onOpenSettings: () => void
   onOpenAuth: () => void
+  onGoHome: () => void
   isRecording: boolean
   isProcessing: boolean
 }
@@ -51,11 +52,10 @@ function formatDate(dateStr: string): string {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
 }
 
-export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, onOpenAuth, isRecording, isProcessing }, ref) {
+export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, onOpenAuth, onGoHome, isRecording, isProcessing }, ref) {
   const [sessions, setSessions] = useState<Session[]>([])
-  const [searchQuery, setSearchQuery] = useState('')
-  const [collapsed, setCollapsed] = useState(false)
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null)
+  const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useImperativeHandle(ref, () => ({
     refresh: () => loadSessions()
@@ -63,6 +63,29 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
 
   useEffect(() => {
     loadSessions()
+  }, [])
+
+  // Auto-refresh: 5s when focused, 60s when not
+  useEffect(() => {
+    const startTimer = () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+      const interval = document.hasFocus() ? 5000 : 60000
+      timerRef.current = setInterval(loadSessions, interval)
+    }
+
+    startTimer()
+
+    const onFocus = () => { loadSessions(); startTimer() }
+    const onBlur = () => startTimer()
+
+    window.addEventListener('focus', onFocus)
+    window.addEventListener('blur', onBlur)
+
+    return () => {
+      if (timerRef.current) clearInterval(timerRef.current)
+      window.removeEventListener('focus', onFocus)
+      window.removeEventListener('blur', onBlur)
+    }
   }, [])
 
   // Close 3-dot menu on click outside
@@ -103,36 +126,19 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
     setMenuSessionId(menuSessionId === id ? null : id)
   }
 
-  const filtered = sessions.filter(s => {
-    if (searchQuery && !(s.title || 'Untitled').toLowerCase().includes(searchQuery.toLowerCase())) return false
-    return true
-  })
-
-  if (collapsed) {
-    return (
-      <aside className="sidebar sidebar--collapsed">
-        <div className="sidebar__header">
-          <span className="sidebar__brand">🧠</span>
-          <button className="sidebar__collapse" onClick={() => setCollapsed(false)}>▶</button>
-        </div>
-      </aside>
-    )
-  }
-
   return (
     <aside className="sidebar">
       <div className="sidebar__header">
-        <span className="sidebar__brand">🧠 MeetSense</span>
-        <button className="sidebar__collapse" onClick={() => setCollapsed(true)}>◀</button>
+        <span className="sidebar__brand sidebar__brand--clickable" onClick={onGoHome}>🧠 MeetSense</span>
       </div>
 
       <div className="sidebar__sessions">
-        {filtered.length === 0 && (
+        {sessions.length === 0 && (
           <div className="sidebar__empty">
             {isRecording ? 'Recording in progress...' : 'No sessions yet. Start recording!'}
           </div>
         )}
-        {filtered.map(session => (
+        {sessions.map(session => (
           <div
             key={session.id}
             className="session-card"
@@ -169,7 +175,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
               {session.duration_seconds && (
                 <span className="session-card__duration">{formatDuration(session.duration_seconds)}</span>
               )}
-              {isProcessing && filtered.indexOf(session) === 0 && (
+              {isProcessing && sessions.indexOf(session) === 0 && (
                 <span className="session-card__processing">⏳ Processing...</span>
               )}
             </div>
@@ -180,7 +186,6 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
       <div className="sidebar__footer">
         <button className="sidebar__settings" onClick={onOpenSettings} title="Settings">⚙️</button>
         <button className="sidebar__auth" onClick={onOpenAuth}>Sign In</button>
-        <button className="sidebar__refresh" onClick={loadSessions}>↻ Refresh</button>
       </div>
     </aside>
   )
