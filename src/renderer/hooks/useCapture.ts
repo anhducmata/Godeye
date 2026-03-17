@@ -16,8 +16,26 @@ declare global {
       sendAudioChunk: (data: any) => void
       sendWebmChunk: (data: ArrayBuffer) => void
       onTranscript: (cb: (data: any) => void) => void
+      onTranscriptInterim: (cb: (data: any) => void) => void
       onVisualNote: (cb: (data: any) => void) => void
       onSummary: (cb: (data: any) => void) => void
+      onPostMeetingStatus: (cb: (data: { processing: boolean }) => void) => void
+      // Sessions
+      listSessions: () => Promise<any[]>
+      getSession: (id: string) => Promise<any>
+      deleteSession: (id: string) => Promise<{ success: boolean }>
+      // Tags
+      listTags: () => Promise<any[]>
+      createTag: (data: { name: string; color?: string }) => Promise<any>
+      deleteTag: (id: number) => Promise<{ success: boolean }>
+      tagSession: (sessionId: string, tagId: number) => Promise<{ success: boolean }>
+      untagSession: (sessionId: string, tagId: number) => Promise<{ success: boolean }>
+      // Speakers
+      listSpeakerProfiles: () => Promise<any[]>
+      createSpeakerProfile: (data: { name: string; sampleText?: string; avatarColor?: string }) => Promise<any>
+      assignSpeaker: (data: { sessionId: string; diarizeLabel: string; speakerProfileId: number }) => Promise<{ success: boolean }>
+      // RAG
+      searchKnowledge: (query: string) => Promise<any[]>
       removeAllListeners: (channel: string) => void
     }
   }

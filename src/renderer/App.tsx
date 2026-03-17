@@ -4,6 +4,7 @@ import { useTranscript } from './hooks/useTranscript'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './components/MermaidBlock'
+import { Sidebar } from './components/Sidebar'
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0')
@@ -68,8 +69,22 @@ function App() {
     setShowSettings(false)
   }
 
+  const handleLoadSession = async (id: string) => {
+    try {
+      const data = await window.meetsense.getSession(id)
+      if (data) {
+        console.log('[App] Loaded session:', id, data)
+        // TODO: populate transcript + summary from loaded session
+      }
+    } catch (err) {
+      console.error('[App] Failed to load session:', err)
+    }
+  }
+
   return (
-    <div className="app">
+    <div className="app-layout">
+      <Sidebar onLoadSession={handleLoadSession} isRecording={state === 'capturing'} />
+      <div className="app">
       {/* Settings Modal */}
       {showSettings && (
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>
@@ -102,7 +117,7 @@ function App() {
       {/* Top Bar */}
       <header className="topbar">
         <div className="topbar__left">
-          <span className="topbar__logo">👁 meetsense</span>
+          <span className="topbar__logo">🧠 MeetSense</span>
           {state === 'capturing' && (
             <span className="topbar__live">
               <span className="topbar__dot"></span>
@@ -344,6 +359,7 @@ function App() {
           )}
         </section>
       </main>
+    </div>
     </div>
   )
 }
