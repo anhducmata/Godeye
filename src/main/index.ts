@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, desktopCapturer } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import path from 'path'
+import { initializeHandlers } from './ipc/handlers'
 
 let mainWindow: BrowserWindow | null = null
 
@@ -19,28 +20,14 @@ function createWindow() {
     }
   })
 
-  // Register IPC handlers
-  registerIpcHandlers()
+  // Initialize all IPC handlers
+  initializeHandlers(mainWindow)
 
   if (process.env.ELECTRON_RENDERER_URL) {
     mainWindow.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
     mainWindow.loadFile(path.join(__dirname, '../renderer/index.html'))
   }
-}
-
-function registerIpcHandlers() {
-  ipcMain.handle('get-screen-sources', async () => {
-    const sources = await desktopCapturer.getSources({
-      types: ['screen', 'window'],
-      thumbnailSize: { width: 320, height: 180 }
-    })
-    return sources.map(s => ({
-      id: s.id,
-      name: s.name,
-      thumbnail: s.thumbnail.toDataURL()
-    }))
-  })
 }
 
 app.whenReady().then(createWindow)

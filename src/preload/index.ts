@@ -1,13 +1,9 @@
 import { contextBridge, ipcRenderer } from 'electron'
 
-export interface GodeyeAPI {
-  getScreenSources: () => Promise<Array<{ id: string; name: string; thumbnail: string }>>
-  startCapture: (config: CaptureConfig) => Promise<void>
-  stopCapture: () => Promise<void>
-  onTranscript: (cb: (data: TranscriptEntry) => void) => void
-  onVisualNote: (cb: (data: VisualNote) => void) => void
-  onSummary: (cb: (data: SummaryUpdate) => void) => void
-  removeAllListeners: (channel: string) => void
+export interface ScreenSource {
+  id: string
+  name: string
+  thumbnail: string
 }
 
 export interface CaptureConfig {
@@ -15,6 +11,14 @@ export interface CaptureConfig {
   cropRegion?: { x: number; y: number; width: number; height: number }
   systemAudio: boolean
   microphone: boolean
+  fps?: number
+}
+
+export interface CaptureFrame {
+  timestamp: number
+  dataUrl: string
+  width: number
+  height: number
 }
 
 export interface TranscriptEntry {
@@ -41,20 +45,54 @@ export interface SummaryUpdate {
   unresolvedQuestions: string[]
 }
 
-contextBridge.exposeInMainWorld('godeye', {
+export interface AudioConfig {
+  systemAudio: boolean
+  microphone: boolean
+  sampleRate: number
+}
+
+export interface GodeyeAPI {
+  // Screen capture
+  getScreenSources: () => Promise<ScreenSource[]>
+  selectArea: () => Promise<{ x: number; y: number; width: number; height: number } | null>
+  startCapture: (config: CaptureConfig) => Promise<{ success: boolean }>
+  stopCapture: () => Promise<{ success: boolean }>
+
+  // Event listeners
+  onCaptureFrame: (cb: (frame: CaptureFrame) => void) => void
+  onTranscript: (cb: (data: TranscriptEntry) => void) => void
+  onVisualNote: (cb: (data: VisualNote) => void) => void
+  onSummary: (cb: (data: SummaryUpdate) => void) => void
+  onStartAudioCapture: (cb: (config: AudioConfig) => void) => void
+  onStopAudioCapture: (cb: () => void) => void
+
+  // Audio
+  sendAudioChunk: (data: { timestamp: number; buffer: ArrayBuffer; source: string }) => void
+
+  // Cleanup
+  removeAllListeners: (channel: string) => void
+}
+
+const api: GodeyeAPI = {
+  // Screen capture
   getScreenSources: () => ipcRenderer.invoke('get-screen-sources'),
-  startCapture: (config: CaptureConfig) => ipcRenderer.invoke('start-capture', config),
+  selectArea: () => ipcRenderer.invoke('select-area'),
+  startCapture: (config) => ipcRenderer.invoke('start-capture', config),
   stopCapture: () => ipcRenderer.invoke('stop-capture'),
-  onTranscript: (cb: (data: TranscriptEntry) => void) => {
-    ipcRenderer.on('transcript', (_e, data) => cb(data))
-  },
-  onVisualNote: (cb: (data: VisualNote) => void) => {
-    ipcRenderer.on('visual-note', (_e, data) => cb(data))
-  },
-  onSummary: (cb: (data: SummaryUpdate) => void) => {
-    ipcRenderer.on('summary', (_e, data) => cb(data))
-  },
-  removeAllListeners: (channel: string) => {
-    ipcRenderer.removeAllListeners(channel)
-  }
-} satisfies GodeyeAPI)
+
+  // Event listeners
+  onCaptureFrame: (cb) => ipcRenderer.on('capture-frame', (_e, data) => cb(data)),
+  onTranscript: (cb) => ipcRenderer.on('transcript', (_e, data) => cb(data)),
+  onVisualNote: (cb) => ipcRenderer.on('visual-note', (_e, data) => cb(data)),
+  onSummary: (cb) => ipcRenderer.on('summary', (_e, data) => cb(data)),
+  onStartAudioCapture: (cb) => ipcRenderer.on('start-audio-capture', (_e, config) => cb(config)),
+  onStopAudioCapture: (cb) => ipcRenderer.on('stop-audio-capture', () => cb()),
+
+  // Audio
+  sendAudioChunk: (data) => ipcRenderer.send('audio-chunk', data),
+
+  // Cleanup
+  removeAllListeners: (channel) => ipcRenderer.removeAllListeners(channel)
+}
+
+contextBridge.exposeInMainWorld('godeye', api)
