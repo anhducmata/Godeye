@@ -9,6 +9,33 @@ import { ChatWidget } from './components/ChatWidget'
 
 type AppView = 'sessions' | 'recording' | 'viewing'
 
+const THEMES: Record<string, { label: string; accent: string; preview: string; vars: Record<string, string> }> = {
+  indigo: {
+    label: 'Indigo Night', accent: '#6366f1', preview: 'linear-gradient(135deg, #0c0c14, #6366f1)',
+    vars: { '--bg': '#0c0c14', '--bg-card': '#12121e', '--bg-hover': '#1a1a2e', '--bg-input': '#16162a', '--border': '#1e1e3a', '--border-lit': '#2a2a4a', '--accent': '#6366f1', '--accent-2': '#818cf8' }
+  },
+  emerald: {
+    label: 'Emerald Forest', accent: '#10b981', preview: 'linear-gradient(135deg, #0a1210, #10b981)',
+    vars: { '--bg': '#0a1210', '--bg-card': '#0f1a16', '--bg-hover': '#162820', '--bg-input': '#122018', '--border': '#1a3028', '--border-lit': '#254a3a', '--accent': '#10b981', '--accent-2': '#34d399' }
+  },
+  rose: {
+    label: 'Rose Quartz', accent: '#f43f5e', preview: 'linear-gradient(135deg, #140c0e, #f43f5e)',
+    vars: { '--bg': '#140c0e', '--bg-card': '#1e1216', '--bg-hover': '#2e1a20', '--bg-input': '#2a1620', '--border': '#3a1e2a', '--border-lit': '#4a2a3a', '--accent': '#f43f5e', '--accent-2': '#fb7185' }
+  },
+  amber: {
+    label: 'Golden Hour', accent: '#f59e0b', preview: 'linear-gradient(135deg, #14120a, #f59e0b)',
+    vars: { '--bg': '#14120a', '--bg-card': '#1e1a0f', '--bg-hover': '#2e2816', '--bg-input': '#2a2214', '--border': '#3a301e', '--border-lit': '#4a3e2a', '--accent': '#f59e0b', '--accent-2': '#fbbf24' }
+  },
+  cyan: {
+    label: 'Arctic Blue', accent: '#06b6d4', preview: 'linear-gradient(135deg, #0a1214, #06b6d4)',
+    vars: { '--bg': '#0a1214', '--bg-card': '#0f1a1e', '--bg-hover': '#162830', '--bg-input': '#122028', '--border': '#1a3038', '--border-lit': '#254a52', '--accent': '#06b6d4', '--accent-2': '#22d3ee' }
+  },
+  violet: {
+    label: 'Neon Violet', accent: '#8b5cf6', preview: 'linear-gradient(135deg, #100c18, #8b5cf6)',
+    vars: { '--bg': '#100c18', '--bg-card': '#18122a', '--bg-hover': '#221a3e', '--bg-input': '#1e1636', '--border': '#2a1e4a', '--border-lit': '#3a2e5a', '--accent': '#8b5cf6', '--accent-2': '#a78bfa' }
+  }
+}
+
 interface LoadedSession {
   session: any
   transcripts: any[]
@@ -41,6 +68,7 @@ function App() {
   const [apiKey, setApiKey] = useState('')
   const [apiProvider, setApiProvider] = useState<'openai' | 'gemini'>('gemini')
   const [language, setLanguage] = useState('English')
+  const [colorTheme, setColorTheme] = useState(() => localStorage.getItem('meetsense-theme') || 'indigo')
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[] | null>(null)
   const [searching, setSearching] = useState(false)
@@ -52,6 +80,15 @@ function App() {
   const summaryEndRef = useRef<HTMLDivElement>(null)
   const documentEndRef = useRef<HTMLDivElement>(null)
   const debugEndRef = useRef<HTMLDivElement>(null)
+
+  // Apply color theme
+  useEffect(() => {
+    const theme = THEMES[colorTheme]
+    if (!theme) return
+    const root = document.documentElement
+    Object.entries(theme.vars).forEach(([key, val]) => root.style.setProperty(key, val))
+    localStorage.setItem('meetsense-theme', colorTheme)
+  }, [colorTheme])
 
   useEffect(() => {
     transcriptEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -159,6 +196,22 @@ function App() {
                 value={apiKey}
                 onChange={e => setApiKey(e.target.value)}
               />
+            </div>
+            <div className="modal__field">
+              <label>Color Theme</label>
+              <div className="theme-grid">
+                {Object.entries(THEMES).map(([key, theme]) => (
+                  <button
+                    key={key}
+                    className={`theme-swatch ${colorTheme === key ? 'theme-swatch--active' : ''}`}
+                    style={{ background: theme.preview }}
+                    onClick={() => setColorTheme(key)}
+                    title={theme.label}
+                  >
+                    <span className="theme-swatch__label">{theme.label}</span>
+                  </button>
+                ))}
+              </div>
             </div>
             <div className="modal__actions">
               <button className="btn" onClick={() => setShowSettings(false)}>Cancel</button>
