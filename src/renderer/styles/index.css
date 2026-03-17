@@ -509,9 +509,9 @@ body {
 .session-header__tag {
   font-size: 9px;
   font-weight: 500;
-  padding: 2px 8px;
-  border: 1px solid var(--border-lit);
-  border-radius: 10px;
+  padding: 2px 4px;
+  border: none;
+  color: var(--text-3);
 }
 
 /* ================================================

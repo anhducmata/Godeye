@@ -168,15 +168,6 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
               <span className="session-card__icon">{DOC_TYPE_ICONS[session.document_type] || '📝'}</span>
               <span className="session-card__title">{session.title || 'Untitled Session'}</span>
             </div>
-            {session.tags && session.tags.length > 0 && (
-              <div className="session-card__tags">
-                {session.tags.slice(0, 3).map(tag => (
-                  <span key={tag.id} className="session-card__tag" style={{ color: tag.color }}>
-                    #{tag.name}
-                  </span>
-                ))}
-              </div>
-            )}
             <div className="session-card__meta">
               <span className="session-card__date">{formatDate(session.created_at)}</span>
               {session.duration_seconds && (
