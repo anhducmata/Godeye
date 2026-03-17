@@ -9,17 +9,27 @@
     "preview": "electron-vite preview",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": ["desktop-observer", "meeting", "transcription", "ocr", "ai-summary"],
+  "keywords": [
+    "desktop-observer",
+    "meeting",
+    "transcription",
+    "ocr",
+    "ai-summary"
+  ],
   "author": "",
   "license": "ISC",
   "dependencies": {
     "electron-store": "^11.0.2",
+    "openai": "^6.31.0",
     "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react-dom": "^19.2.4",
+    "tesseract.js": "^7.0.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^4.7.0",
     "electron": "^41.0.2",
     "electron-vite": "^3.1.0",

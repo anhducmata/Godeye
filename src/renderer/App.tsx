@@ -1,7 +1,6 @@
-import React, { useRef, useEffect } from 'react'
+import React, { useRef, useEffect, useState } from 'react'
 import { useCapture } from './hooks/useCapture'
 import { useTranscript } from './hooks/useTranscript'
-
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60).toString().padStart(2, '0')
   const s = (seconds % 60).toString().padStart(2, '0')
@@ -10,27 +9,16 @@ function formatTime(seconds: number): string {
 
 function App() {
   const {
-    state,
-    sources,
-    selectedSource,
-    setSelectedSource,
-    cropRegion,
-    options,
-    setOptions,
-    latestFrame,
-    elapsed,
-    loadSources,
-    selectArea,
-    startCapture,
-    stopCapture
+    state, sources, selectedSource, setSelectedSource,
+    cropRegion, options, setOptions, latestFrame, elapsed,
+    loadSources, selectArea, startCapture, stopCapture
   } = useCapture()
 
-  const {
-    transcripts,
-    visualNotes,
-    summary,
-    clearAll
-  } = useTranscript()
+  const { transcripts, visualNotes, summary, clearAll } = useTranscript()
+
+  const [showSettings, setShowSettings] = useState(false)
+  const [apiKey, setApiKey] = useState('')
+  const [apiProvider, setApiProvider] = useState<'openai' | 'gemini'>('openai')
 
   const transcriptEndRef = useRef<HTMLDivElement>(null)
 
@@ -44,16 +32,60 @@ function App() {
       await loadSources()
       return
     }
+    // Set API key before starting
+    if (apiKey) {
+      await window.godeye.setApiKey({ apiKey, provider: apiProvider })
+    }
     clearAll()
     await startCapture()
   }
 
-  const handleStop = async () => {
-    await stopCapture()
+  const handleExportMd = async () => {
+    await window.godeye.exportMarkdown()
+  }
+
+  const handleExportJson = async () => {
+    await window.godeye.exportJSON()
+  }
+
+  const handleSaveSettings = async () => {
+    if (apiKey) {
+      await window.godeye.setApiKey({ apiKey, provider: apiProvider })
+    }
+    setShowSettings(false)
   }
 
   return (
     <div className="app">
+      {/* Settings Modal */}
+      {showSettings && (
+        <div className="modal-overlay" onClick={() => setShowSettings(false)}>
+          <div className="modal" onClick={e => e.stopPropagation()}>
+            <h2 className="modal__title">⚙️ Settings</h2>
+            <div className="modal__field">
+              <label>AI Provider</label>
+              <select value={apiProvider} onChange={e => setApiProvider(e.target.value as any)}>
+                <option value="openai">OpenAI (GPT-4o-mini)</option>
+                <option value="gemini">Google Gemini (2.0 Flash)</option>
+              </select>
+            </div>
+            <div className="modal__field">
+              <label>API Key</label>
+              <input
+                type="password"
+                placeholder="Enter your API key..."
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+              />
+            </div>
+            <div className="modal__actions">
+              <button className="btn" onClick={() => setShowSettings(false)}>Cancel</button>
+              <button className="btn btn--start" onClick={handleSaveSettings}>Save</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Header / Control Bar */}
       <header className="control-bar">
         <div className="control-bar__left">
@@ -73,21 +105,18 @@ function App() {
         </div>
 
         <div className="control-bar__center">
-          {/* Source selector */}
           <select
             className="btn btn--source"
             id="select-source"
             value={selectedSource?.id || ''}
-            onChange={(e) => {
+            onChange={e => {
               const src = sources.find(s => s.id === e.target.value)
               if (src) setSelectedSource(src)
             }}
             onClick={() => loadSources()}
           >
             <option value="" disabled>🖥️ Select Source</option>
-            {sources.map(s => (
-              <option key={s.id} value={s.id}>{s.name}</option>
-            ))}
+            {sources.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
           </select>
 
           <button className="btn btn--area" id="select-area" onClick={selectArea}>
@@ -96,20 +125,14 @@ function App() {
           </button>
 
           <div className="audio-toggles">
-            <label className="toggle" id="toggle-system-audio">
-              <input
-                type="checkbox"
-                checked={options.systemAudio}
-                onChange={e => setOptions({ ...options, systemAudio: e.target.checked })}
-              />
+            <label className="toggle">
+              <input type="checkbox" checked={options.systemAudio}
+                onChange={e => setOptions({ ...options, systemAudio: e.target.checked })} />
               <span className="toggle__label">🔊 System</span>
             </label>
-            <label className="toggle" id="toggle-mic">
-              <input
-                type="checkbox"
-                checked={options.microphone}
-                onChange={e => setOptions({ ...options, microphone: e.target.checked })}
-              />
+            <label className="toggle">
+              <input type="checkbox" checked={options.microphone}
+                onChange={e => setOptions({ ...options, microphone: e.target.checked })} />
               <span className="toggle__label">🎤 Mic</span>
             </label>
           </div>
@@ -117,25 +140,23 @@ function App() {
 
         <div className="control-bar__right">
           {state === 'idle' ? (
-            <button className="btn btn--start" id="btn-start" onClick={handleStart}>
-              ▶ Start
-            </button>
+            <button className="btn btn--start" onClick={handleStart}>▶ Start</button>
           ) : (
-            <button className="btn btn--stop" id="btn-stop" onClick={handleStop}>
-              ⏹ Stop
-            </button>
+            <button className="btn btn--stop" onClick={stopCapture}>⏹ Stop</button>
           )}
-          <button className="btn btn--settings" id="btn-settings">⚙️</button>
+          <button className="btn btn--settings" onClick={() => setShowSettings(true)}>⚙️</button>
         </div>
       </header>
 
       {/* Main Content — Three Column Layout */}
       <main className="panels">
-        {/* Left Panel: Transcript */}
-        <section className="panel panel--transcript" id="panel-transcript">
+        {/* Transcript Panel */}
+        <section className="panel panel--transcript">
           <div className="panel__header">
             <h2 className="panel__title">📝 Transcript</h2>
-            <span className="panel__badge">{state === 'capturing' ? 'Live' : `${transcripts.length} entries`}</span>
+            <span className="panel__badge">
+              {state === 'capturing' ? 'Live' : `${transcripts.length}`}
+            </span>
           </div>
           <div className="panel__content">
             {transcripts.length === 0 ? (
@@ -145,11 +166,9 @@ function App() {
               </div>
             ) : (
               <div className="transcript-list">
-                {transcripts.map((entry) => (
+                {transcripts.map(entry => (
                   <div key={entry.id} className="transcript-entry">
-                    <span className="transcript-entry__time">
-                      {formatTime(Math.floor(entry.start))}
-                    </span>
+                    <span className="transcript-entry__time">{formatTime(Math.floor(entry.start))}</span>
                     <span className="transcript-entry__text">{entry.text}</span>
                   </div>
                 ))}
@@ -159,37 +178,33 @@ function App() {
           </div>
         </section>
 
-        {/* Middle Panel: Visual Notes */}
-        <section className="panel panel--visual" id="panel-visual">
+        {/* Visual Notes Panel */}
+        <section className="panel panel--visual">
           <div className="panel__header">
             <h2 className="panel__title">👁 Visual Notes</h2>
-            <span className="panel__badge">{state === 'capturing' ? 'OCR' : `${visualNotes.length} notes`}</span>
+            <span className="panel__badge">
+              {state === 'capturing' ? 'OCR' : `${visualNotes.length}`}
+            </span>
           </div>
           <div className="panel__content">
             {visualNotes.length === 0 ? (
               <div className="panel__empty">
                 <p className="panel__empty-icon">🖥️</p>
                 <p>Select a screen area to capture visual context</p>
-                {latestFrame && (
-                  <img
-                    src={latestFrame}
-                    className="panel__preview"
-                    style={{ maxWidth: '100%', marginTop: 16, borderRadius: 8, opacity: 0.6 }}
-                    alt="Latest frame"
-                  />
-                )}
               </div>
             ) : (
               <div className="visual-notes-list">
-                {visualNotes.map((note) => (
+                {visualNotes.map(note => (
                   <div key={note.id} className="visual-note">
                     {note.thumbnail && (
                       <div className="visual-note__thumb">
-                        <img src={note.thumbnail} alt="Frame" />
+                        <img src={note.thumbnail} alt="" />
                       </div>
                     )}
                     <div className="visual-note__content">
-                      <span className="visual-note__time">{formatTime(Math.floor((note.timestamp - (transcripts[0]?.timestamp || note.timestamp)) / 1000))}</span>
+                      <span className="visual-note__time">
+                        {new Date(note.timestamp).toLocaleTimeString()}
+                      </span>
                       <p className="visual-note__text">{note.text}</p>
                     </div>
                   </div>
@@ -199,8 +214,8 @@ function App() {
           </div>
         </section>
 
-        {/* Right Panel: Summary + Actions */}
-        <section className="panel panel--summary" id="panel-summary">
+        {/* Summary Panel */}
+        <section className="panel panel--summary">
           <div className="panel__header">
             <h2 className="panel__title">🧠 Summary</h2>
             <span className="panel__badge">AI</span>
@@ -209,7 +224,11 @@ function App() {
             {!summary ? (
               <div className="panel__empty">
                 <p className="panel__empty-icon">✨</p>
-                <p>AI summary will appear here during your session</p>
+                <p>
+                  {!apiKey
+                    ? 'Configure API key in ⚙️ Settings to enable AI summaries'
+                    : 'AI summary will appear here during your session'}
+                </p>
               </div>
             ) : (
               <div className="summary-content">
@@ -221,19 +240,19 @@ function App() {
                   <h3 className="summary-section__title">Summary</h3>
                   <p className="summary-section__text">{summary.summary}</p>
                 </div>
-                {summary.decisions.length > 0 && (
+                {summary.decisions?.length > 0 && (
                   <div className="summary-section">
                     <h3 className="summary-section__title">✅ Decisions</h3>
                     <ul className="summary-section__list">
-                      {summary.decisions.map((d, i) => <li key={i}>{d}</li>)}
+                      {summary.decisions.map((d: string, i: number) => <li key={i}>{d}</li>)}
                     </ul>
                   </div>
                 )}
-                {summary.actionItems.length > 0 && (
+                {summary.actionItems?.length > 0 && (
                   <div className="summary-section">
                     <h3 className="summary-section__title">🎯 Action Items</h3>
                     <ul className="action-items">
-                      {summary.actionItems.map((item, i) => (
+                      {summary.actionItems.map((item: string, i: number) => (
                         <li key={i} className="action-item">
                           <input type="checkbox" />
                           <span>{item}</span>
@@ -242,31 +261,30 @@ function App() {
                     </ul>
                   </div>
                 )}
-                {summary.unresolvedQuestions.length > 0 && (
+                {summary.unresolvedQuestions?.length > 0 && (
                   <div className="summary-section">
-                    <h3 className="summary-section__title">❓ Unresolved Questions</h3>
+                    <h3 className="summary-section__title">❓ Unresolved</h3>
                     <ul className="summary-section__list">
-                      {summary.unresolvedQuestions.map((q, i) => <li key={i}>{q}</li>)}
+                      {summary.unresolvedQuestions.map((q: string, i: number) => <li key={i}>{q}</li>)}
                     </ul>
                   </div>
                 )}
               </div>
             )}
           </div>
-
           <div className="panel__footer">
-            <button className="btn btn--export" id="btn-export-md" disabled={state === 'capturing'}>
+            <button className="btn btn--export" onClick={handleExportMd} disabled={state === 'capturing'}>
               📄 Export MD
             </button>
-            <button className="btn btn--export" id="btn-export-json" disabled={state === 'capturing'}>
+            <button className="btn btn--export" onClick={handleExportJson} disabled={state === 'capturing'}>
               📋 Export JSON
             </button>
           </div>
         </section>
       </main>
 
-      {/* Bottom Timeline */}
-      <footer className="timeline" id="timeline">
+      {/* Timeline */}
+      <footer className="timeline">
         <div className="timeline__track">
           <div className="timeline__label">
             {state === 'capturing' ? `● REC ${formatTime(elapsed)}` : 'Timeline'}

@@ -14,6 +14,9 @@ declare global {
         fps?: number
       }) => Promise<{ success: boolean }>
       stopCapture: () => Promise<{ success: boolean }>
+      setApiKey: (config: { apiKey: string; provider: string }) => Promise<{ success: boolean }>
+      exportMarkdown: () => Promise<{ success: boolean; filePath?: string }>
+      exportJSON: () => Promise<{ success: boolean; filePath?: string }>
       onCaptureFrame: (cb: (frame: { timestamp: number; dataUrl: string }) => void) => void
       onStartAudioCapture: (cb: (config: { systemAudio: boolean; microphone: boolean; sampleRate: number }) => void) => void
       onStopAudioCapture: (cb: () => void) => void
