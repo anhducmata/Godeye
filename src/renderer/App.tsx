@@ -15,7 +15,7 @@ function App() {
     startCapture, stopCapture
   } = useCapture()
 
-  const { transcripts, summary, clearAll } = useTranscript()
+  const { transcripts, summary, clearAll, startListening, stopListening } = useTranscript()
 
   const [showSettings, setShowSettings] = useState(false)
   const [showDebug, setShowDebug] = useState(false)
@@ -40,6 +40,8 @@ function App() {
     clearAll()
     addDebugLog(`▶ Starting: audio=${options.systemAudio}, mic=${options.microphone}`)
     await startCapture()
+    startListening()
+    addDebugLog('🎙️ Web Speech API transcription started')
   }
 
   const handleSaveSettings = async () => {
@@ -110,7 +112,7 @@ function App() {
           {state === 'idle' ? (
             <button className="btn btn--primary" onClick={handleStart}>▶ Start</button>
           ) : (
-            <button className="btn btn--danger" onClick={stopCapture}>⏹ Stop</button>
+            <button className="btn btn--danger" onClick={async () => { stopListening(); await stopCapture(); }}>⏹ Stop</button>
           )}
           <button className={`btn btn--icon ${showDebug ? 'btn--active' : ''}`} onClick={() => setShowDebug(!showDebug)} title="Debug">🐛</button>
           <button className="btn btn--icon" onClick={() => setShowSettings(true)} title="Settings">⚙️</button>
