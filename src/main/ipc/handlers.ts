@@ -2,16 +2,16 @@ import { ipcMain, BrowserWindow, dialog } from 'electron'
 import { ScreenCapturer, CaptureFrame } from '../capture/screen'
 import { AudioCapturer, AudioChunk } from '../capture/audio'
 import { SidecarManager, TranscriptionResult } from '../sidecar/manager'
-import { OcrPipeline, OcrResult } from '../pipeline/ocr-worker'
-import { SummaryEngine, SummaryState, ContextEntry } from '../pipeline/summary-engine'
+import { OcrPipeline } from '../pipeline/ocr-worker'
+import { SummaryEngine, SummaryState } from '../pipeline/summary-engine'
 import { exportMarkdown, exportJSON, SessionData } from '../export'
 import fs from 'fs'
-import path from 'path'
 import crypto from 'crypto'
 
 /**
  * Central IPC handler registry.
- * Wires all pipelines: screen → OCR → summary, audio → ASR → summary
+ * Audio-first approach: audio capture always works.
+ * Screen capture is optional and non-blocking.
  */
 
 let screenCapturer: ScreenCapturer
@@ -23,6 +23,24 @@ let mainWindow: BrowserWindow | null = null
 let sessionStartTime = 0
 let transcriptEntries: any[] = []
 let visualNotes: any[] = []
+let screenCaptureEnabled = false
+
+/** Safe IPC send — ignores errors when the renderer frame is momentarily unavailable */
+function safeSend(channel: string, data?: any) {
+  try {
+    if (
+      mainWindow &&
+      !mainWindow.isDestroyed() &&
+      mainWindow.webContents &&
+      !mainWindow.webContents.isDestroyed() &&
+      !mainWindow.webContents.isLoading()
+    ) {
+      mainWindow.webContents.send(channel, data)
+    }
+  } catch {
+    // Renderer frame was disposed (HMR reload, overlay, etc.) — safe to ignore
+  }
+}
 
 export function initializeHandlers(window: BrowserWindow) {
   mainWindow = window
@@ -53,66 +71,86 @@ export function initializeHandlers(window: BrowserWindow) {
 
   // --- Capture lifecycle ---
   ipcMain.handle('start-capture', async (_event, config: {
-    sourceId: string
+    sourceId?: string
     cropRegion?: { x: number; y: number; width: number; height: number }
     systemAudio: boolean
     microphone: boolean
     fps?: number
+    enableScreenCapture?: boolean
   }) => {
+    console.log('[IPC] start-capture called with config:', JSON.stringify({
+      sourceId: config.sourceId,
+      systemAudio: config.systemAudio,
+      microphone: config.microphone,
+      enableScreenCapture: config.enableScreenCapture
+    }))
+
     sessionStartTime = Date.now()
     transcriptEntries = []
     visualNotes = []
-
-    // Configure screen capture
-    screenCapturer.setSource(config.sourceId)
-    screenCapturer.setCropRegion(config.cropRegion || null)
-    if (config.fps) screenCapturer.setFps(config.fps)
+    screenCaptureEnabled = config.enableScreenCapture === true && !!config.sourceId
 
     // Configure audio
     audioCapturer.setConfig({ systemAudio: config.systemAudio, microphone: config.microphone })
 
-    // Initialize OCR
-    await ocrPipeline.initialize()
-
-    // Start sidecar for ASR
+    // Start sidecar for ASR (non-blocking, optional)
     try {
       await sidecarManager.start()
+      console.log('[IPC] Sidecar started')
     } catch (err) {
       console.warn('[IPC] Sidecar failed to start, continuing without ASR:', err)
     }
 
-    // Wire screen frames → OCR → summary
-    screenCapturer.on('frame', async (frame: CaptureFrame) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('capture-frame', frame)
+    // --- Screen capture (OPTIONAL — only if enabled) ---
+    if (screenCaptureEnabled && config.sourceId) {
+      console.log('[IPC] Screen capture enabled for source:', config.sourceId)
+      screenCapturer.setSource(config.sourceId)
+      screenCapturer.setCropRegion(config.cropRegion || null)
+      if (config.fps) screenCapturer.setFps(config.fps)
+
+      try {
+        await ocrPipeline.initialize()
+      } catch (err) {
+        console.warn('[IPC] OCR init failed:', err)
       }
 
-      // Run OCR on frame
-      const ocrResult = await ocrPipeline.processFrame(frame.dataUrl, frame.timestamp)
-      if (ocrResult) {
-        const note = {
-          id: ocrResult.id,
-          timestamp: ocrResult.timestamp,
-          text: ocrResult.text,
-          thumbnail: ocrResult.thumbnail
-        }
-        visualNotes.push(note)
+      screenCapturer.on('frame', async (frame: CaptureFrame) => {
+        safeSend('capture-frame', frame)
 
-        // Send to renderer
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send('visual-note', note)
+        // Run OCR on frame
+        try {
+          const ocrResult = await ocrPipeline.processFrame(frame.dataUrl, frame.timestamp)
+          if (ocrResult) {
+            const note = {
+              id: ocrResult.id,
+              timestamp: ocrResult.timestamp,
+              text: ocrResult.text,
+              thumbnail: ocrResult.thumbnail
+            }
+            visualNotes.push(note)
+            safeSend('visual-note', note)
+            summaryEngine.addEntry({
+              timestamp: ocrResult.timestamp,
+              type: 'visual',
+              content: ocrResult.text
+            })
+          }
+        } catch (err) {
+          console.error('[IPC] OCR error:', err)
         }
+      })
 
-        // Feed into summary engine
-        summaryEngine.addEntry({
-          timestamp: ocrResult.timestamp,
-          type: 'visual',
-          content: ocrResult.text
-        })
+      try {
+        await screenCapturer.startCapture()
+        console.log('[IPC] Screen capture started')
+      } catch (err) {
+        console.warn('[IPC] Screen capture failed to start:', err)
       }
-    })
+    } else {
+      console.log('[IPC] Screen capture disabled — audio-only mode')
+    }
 
-    // Wire audio → sidecar → transcript → summary
+    // --- Audio pipeline (ALWAYS wired) ---
     audioCapturer.on('chunk', (chunk: AudioChunk) => {
       sidecarManager.sendAudio(chunk.data)
     })
@@ -126,13 +164,7 @@ export function initializeHandlers(window: BrowserWindow) {
         end: result.end
       }
       transcriptEntries.push(entry)
-
-      // Send to renderer
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('transcript', entry)
-      }
-
-      // Feed into summary engine
+      safeSend('transcript', entry)
       summaryEngine.addEntry({
         timestamp: Date.now(),
         type: 'transcript',
@@ -140,42 +172,45 @@ export function initializeHandlers(window: BrowserWindow) {
       })
     })
 
-    // Wire summary engine → renderer
+    // --- Summary engine → renderer ---
     summaryEngine.on('summary', (state: SummaryState) => {
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('summary', state)
-      }
+      safeSend('summary', state)
     })
 
-    // Start all pipelines
-    await screenCapturer.startCapture()
+    // Start audio + summary
     audioCapturer.start()
     summaryEngine.start()
 
     // Tell renderer to start audio capture
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('start-audio-capture', audioCapturer.getConfig())
-    }
+    safeSend('start-audio-capture', audioCapturer.getConfig())
 
+    console.log('[IPC] ✅ Capture session started (audio=' + config.systemAudio + ', mic=' + config.microphone + ', screen=' + screenCaptureEnabled + ')')
     return { success: true }
   })
 
   ipcMain.handle('stop-capture', async () => {
-    // Stop all pipelines
-    screenCapturer.stopCapture()
-    screenCapturer.removeAllListeners('frame')
-    audioCapturer.stop()
-    audioCapturer.removeAllListeners('chunk')
-    summaryEngine.stop()
-    summaryEngine.removeAllListeners('summary')
-    sidecarManager.removeAllListeners('transcription')
-    await ocrPipeline.terminate()
+    console.log('[IPC] stop-capture called')
 
-    // Tell renderer to stop audio capture
-    if (mainWindow && !mainWindow.isDestroyed()) {
-      mainWindow.webContents.send('stop-audio-capture')
+    // Stop screen capture if it was running
+    if (screenCaptureEnabled) {
+      screenCapturer.stopCapture()
+      screenCapturer.removeAllListeners('frame')
+      try { await ocrPipeline.terminate() } catch {}
     }
 
+    // Stop audio pipeline
+    audioCapturer.stop()
+    audioCapturer.removeAllListeners('chunk')
+    sidecarManager.removeAllListeners('transcription')
+
+    // Stop summary
+    summaryEngine.stop()
+    summaryEngine.removeAllListeners('summary')
+
+    // Tell renderer to stop audio capture
+    safeSend('stop-audio-capture')
+
+    console.log('[IPC] ✅ Capture session stopped')
     return { success: true }
   })
 
@@ -225,7 +260,3 @@ function buildSessionData(): SessionData {
     contextBuffer: summaryEngine.getBuffer()
   }
 }
-
-export function getScreenCapturer(): ScreenCapturer { return screenCapturer }
-export function getAudioCapturer(): AudioCapturer { return audioCapturer }
-export function getSummaryEngine(): SummaryEngine { return summaryEngine }

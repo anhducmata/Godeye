@@ -86,52 +86,79 @@ export class ScreenCapturer extends EventEmitter {
     }
   }
 
+  private frameCounter = 0
+
   private async captureFrame(): Promise<void> {
     if (!this.sourceId || !this.isCapturing) return
 
-    console.log('[ScreenCapturer] captureFrame() called, sourceId:', this.sourceId)
+    this.frameCounter++
+    const logThis = this.frameCounter <= 3 || this.frameCounter % 10 === 0
 
-    const sources = await desktopCapturer.getSources({
-      types: ['screen', 'window'],
-      thumbnailSize: { width: 1920, height: 1080 }
-    })
-
-    console.log('[ScreenCapturer] Found', sources.length, 'sources:', sources.map(s => `${s.name}(${s.id})`).join(', '))
-
-    const source = sources.find(s => s.id === this.sourceId)
-    if (!source) {
-      console.warn('[ScreenCapturer] ❌ Source not found:', this.sourceId, '- available:', sources.map(s => s.id))
-      return
+    if (logThis) {
+      console.log(`[ScreenCapturer] captureFrame #${this.frameCounter}, sourceId:`, this.sourceId)
     }
 
-    let thumbnail = source.thumbnail
-    const thumbSize = thumbnail.getSize()
-    console.log(`[ScreenCapturer] Thumbnail size: ${thumbSize.width}×${thumbSize.height}, isEmpty: ${thumbnail.isEmpty()}`)
-
-    // Crop if region is set
-    if (this.cropRegion) {
-      const { x, y, width, height } = this.cropRegion
-      console.log(`[ScreenCapturer] Cropping to: ${x},${y} ${width}×${height}`)
-      thumbnail = thumbnail.crop({
-        x: Math.round(x),
-        y: Math.round(y),
-        width: Math.round(width),
-        height: Math.round(height)
+    try {
+      const sources = await desktopCapturer.getSources({
+        types: ['screen', 'window'],
+        thumbnailSize: { width: 800, height: 450 }  // downscaled for performance
       })
+
+      const source = sources.find(s => s.id === this.sourceId)
+      if (!source) {
+        if (logThis) console.warn('[ScreenCapturer] Source not found:', this.sourceId)
+        return
+      }
+
+      let thumbnail = source.thumbnail
+      if (thumbnail.isEmpty()) {
+        if (logThis) console.warn('[ScreenCapturer] Empty thumbnail, skipping')
+        return
+      }
+
+      // Crop if region is set (scale crop coordinates to match thumbnail size)
+      if (this.cropRegion) {
+        const thumbSize = thumbnail.getSize()
+        // The display coords may be larger than the thumbnail — scale proportionally
+        const displayBounds = require('electron').screen.getPrimaryDisplay().bounds
+        const scaleX = thumbSize.width / displayBounds.width
+        const scaleY = thumbSize.height / displayBounds.height
+
+        const cx = Math.round(this.cropRegion.x * scaleX)
+        const cy = Math.round(this.cropRegion.y * scaleY)
+        const cw = Math.round(this.cropRegion.width * scaleX)
+        const ch = Math.round(this.cropRegion.height * scaleY)
+
+        // Clamp to valid bounds
+        const finalX = Math.max(0, Math.min(cx, thumbSize.width - 1))
+        const finalY = Math.max(0, Math.min(cy, thumbSize.height - 1))
+        const finalW = Math.min(cw, thumbSize.width - finalX)
+        const finalH = Math.min(ch, thumbSize.height - finalY)
+
+        if (finalW > 10 && finalH > 10) {
+          thumbnail = thumbnail.crop({ x: finalX, y: finalY, width: finalW, height: finalH })
+        }
+      }
+
+      // Use JPEG for smaller IPC payload (~50KB instead of ~2MB)
+      const jpegBuffer = thumbnail.toJPEG(60)
+      const dataUrl = `data:image/jpeg;base64,${jpegBuffer.toString('base64')}`
+
+      if (logThis) {
+        console.log(`[ScreenCapturer] Frame #${this.frameCounter}: ${thumbnail.getSize().width}×${thumbnail.getSize().height}, ${Math.round(dataUrl.length / 1024)}KB`)
+      }
+
+      const frame: CaptureFrame = {
+        timestamp: Date.now(),
+        dataUrl,
+        width: thumbnail.getSize().width,
+        height: thumbnail.getSize().height
+      }
+
+      this.emit('frame', frame)
+    } catch (err) {
+      console.error('[ScreenCapturer] captureFrame error:', err)
     }
-
-    const dataUrl = thumbnail.toDataURL()
-    console.log(`[ScreenCapturer] Frame data URL length: ${dataUrl.length} chars, starts with: ${dataUrl.substring(0, 30)}`)
-
-    const frame: CaptureFrame = {
-      timestamp: Date.now(),
-      dataUrl,
-      width: thumbnail.getSize().width,
-      height: thumbnail.getSize().height
-    }
-
-    this.emit('frame', frame)
-    console.log(`[ScreenCapturer] ✅ Frame emitted: ${frame.width}×${frame.height}`)
   }
 
   /**
