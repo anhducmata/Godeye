@@ -7,7 +7,7 @@ import { MermaidBlock } from './components/MermaidBlock'
 import { Sidebar, SidebarHandle } from './components/Sidebar'
 import { ChatWidget } from './components/ChatWidget'
 
-type AppView = 'sessions' | 'recording' | 'viewing'
+type AppView = 'sessions' | 'recording' | 'viewing' | 'search'
 
 const THEMES: Record<string, { label: string; accent: string; preview: string; vars: Record<string, string> }> = {
   blue: {
@@ -173,7 +173,9 @@ function App() {
   const handleSearch = (query: string) => {
     setSearchQuery(query)
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
-    if (!query.trim()) { setSearchResults(null); return }
+    if (!query.trim()) { setSearchResults(null); setView('sessions'); return }
+    setView('search')
+    setSearchResults(null)
     searchTimeoutRef.current = setTimeout(async () => {
       setSearching(true)
       try {
@@ -183,7 +185,7 @@ function App() {
         setSearchResults([])
       }
       setSearching(false)
-    }, 500)
+    }, 400)
   }
 
   return (
@@ -276,38 +278,6 @@ function App() {
                   onChange={e => handleSearch(e.target.value)}
                 />
                 {searching && <span className="search-bar__spinner" />}
-                {searchResults !== null && (
-                  <div className="search-results">
-                    {searchResults.length === 0 ? (
-                      <div className="search-results__empty">No matches found</div>
-                    ) : (
-                      searchResults.slice(0, 8).map((r: any, i: number) => {
-                        const text = (r.content || r.text || '').slice(0, 200)
-                        const query = searchQuery.toLowerCase()
-                        const idx = text.toLowerCase().indexOf(query)
-                        return (
-                          <div key={i} className="search-results__item" onClick={() => {
-                            if (r.session_id) handleLoadSession(r.session_id)
-                            setSearchQuery(''); setSearchResults(null)
-                          }}>
-                            {r.session_title && (
-                              <div className="search-results__session">
-                                <span className="search-results__session-icon">📝</span>
-                                {r.session_title}
-                              </div>
-                            )}
-                            <div className="search-results__text" dangerouslySetInnerHTML={{
-                              __html: idx >= 0
-                                ? text.slice(0, idx) + '<mark>' + text.slice(idx, idx + query.length) + '</mark>' + text.slice(idx + query.length)
-                                : text
-                            }} />
-                          </div>
-                        )
-                      })
-                    )}
-                    <button className="search-results__close" onClick={() => { setSearchQuery(''); setSearchResults(null) }}>Close</button>
-                  </div>
-                )}
               </div>
             </div>
             <div className="topbar__right" />
@@ -363,6 +333,81 @@ function App() {
       )}
 
       {/* ============================================
+          VIEW: SEARCH RESULTS (Full page)
+          ============================================ */}
+      {view === 'search' && (
+        <>
+          <header className="topbar">
+            <div className="topbar__center">
+              <div className="search-bar">
+                <span className="search-bar__icon">🔍</span>
+                <input
+                  type="text"
+                  className="search-bar__input"
+                  placeholder="Search across all meetings..."
+                  value={searchQuery}
+                  onChange={e => handleSearch(e.target.value)}
+                  autoFocus
+                />
+              </div>
+            </div>
+            <div className="topbar__right" />
+          </header>
+
+          <main className="search-page">
+            <div className="search-page__header">
+              <h2 className="search-page__title">
+                {searching ? 'Searching...' : searchResults ? `${searchResults.length} result${searchResults.length !== 1 ? 's' : ''} for "${searchQuery}"` : ''}
+              </h2>
+            </div>
+
+            {searching && (
+              <div className="search-page__loading">
+                <div className="processing-banner__spinner" />
+                <span>Searching across all sessions...</span>
+              </div>
+            )}
+
+            {!searching && searchResults && searchResults.length === 0 && (
+              <div className="search-page__empty">
+                <div className="empty__icon">🔍</div>
+                <p>No results found for "{searchQuery}"</p>
+                <p className="search-page__hint">Try different keywords or search by tag</p>
+              </div>
+            )}
+
+            {!searching && searchResults && searchResults.length > 0 && (
+              <div className="search-page__results">
+                {searchResults.map((r: any, i: number) => {
+                  const text = (r.content || r.text || '').slice(0, 300)
+                  const query = searchQuery.toLowerCase()
+                  const idx = text.toLowerCase().indexOf(query)
+                  return (
+                    <div key={i} className="search-page__item" onClick={() => {
+                      if (r.session_id) handleLoadSession(r.session_id)
+                      setSearchQuery(''); setSearchResults(null)
+                    }}>
+                      {r.session_title && (
+                        <div className="search-page__item-session">
+                          <span>📝</span>
+                          {r.session_title}
+                        </div>
+                      )}
+                      <div className="search-page__item-text" dangerouslySetInnerHTML={{
+                        __html: idx >= 0
+                          ? text.slice(0, idx) + '<mark>' + text.slice(idx, idx + query.length) + '</mark>' + text.slice(idx + query.length)
+                          : text
+                      }} />
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+          </main>
+        </>
+      )}
+
+      {/* ============================================
           VIEW: SESSION DETAIL (Viewing saved session)
           ============================================ */}
       {view === 'viewing' && loadedSession && (
@@ -378,39 +423,6 @@ function App() {
                   value={searchQuery}
                   onChange={e => handleSearch(e.target.value)}
                 />
-                {searching && <span className="search-bar__spinner" />}
-                {searchResults !== null && (
-                  <div className="search-results">
-                    {searchResults.length === 0 ? (
-                      <div className="search-results__empty">No matches found</div>
-                    ) : (
-                      searchResults.slice(0, 8).map((r: any, i: number) => {
-                        const text = (r.content || r.text || '').slice(0, 200)
-                        const query = searchQuery.toLowerCase()
-                        const idx = text.toLowerCase().indexOf(query)
-                        return (
-                          <div key={i} className="search-results__item" onClick={() => {
-                            if (r.session_id) handleLoadSession(r.session_id)
-                            setSearchQuery(''); setSearchResults(null)
-                          }}>
-                            {r.session_title && (
-                              <div className="search-results__session">
-                                <span className="search-results__session-icon">📝</span>
-                                {r.session_title}
-                              </div>
-                            )}
-                            <div className="search-results__text" dangerouslySetInnerHTML={{
-                              __html: idx >= 0
-                                ? text.slice(0, idx) + '<mark>' + text.slice(idx, idx + query.length) + '</mark>' + text.slice(idx + query.length)
-                                : text
-                            }} />
-                          </div>
-                        )
-                      })
-                    )}
-                    <button className="search-results__close" onClick={() => { setSearchQuery(''); setSearchResults(null) }}>Close</button>
-                  </div>
-                )}
               </div>
             </div>
             <div className="topbar__right" />

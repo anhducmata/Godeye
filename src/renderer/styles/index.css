@@ -524,6 +524,94 @@ body {
 }
 
 /* ================================================
+   SEARCH PAGE (Full page view)
+   ================================================ */
+.search-page {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px;
+}
+
+.search-page__header {
+  margin-bottom: 16px;
+}
+
+.search-page__title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  margin: 0;
+}
+
+.search-page__loading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 32px 0;
+  color: var(--text-3);
+  font-size: 11px;
+}
+
+.search-page__empty {
+  text-align: center;
+  padding: 48px 20px;
+  color: var(--text-3);
+}
+
+.search-page__empty p {
+  margin: 6px 0;
+  font-size: 12px;
+}
+
+.search-page__hint {
+  font-size: 10px !important;
+  color: var(--text-3);
+}
+
+.search-page__results {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.search-page__item {
+  padding: 12px 14px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: background 0.1s;
+  border: 1px solid var(--border);
+}
+
+.search-page__item:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-lit);
+}
+
+.search-page__item-session {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.search-page__item-text {
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.search-page__item-text mark {
+  background: rgba(251, 191, 36, 0.25);
+  color: var(--text);
+  padding: 0 1px;
+  border-radius: 2px;
+}
+
+/* ================================================
    SEARCH RESULTS (GitHub-style)
    ================================================ */
 .search-results {
