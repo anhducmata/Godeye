@@ -32,7 +32,7 @@ You receive two streams of data:
 2. VISUAL: What's on screen (OCR from captured screen area)
 
 Based on these inputs and the previous state, generate an updated summary.
-IMPORTANT: You must write your entire response in the following language: {target_language}
+IMPORTANT: Write your entire response in: {target_language}
 
 PREVIOUS STATE:
 {previous_summary}
@@ -45,26 +45,25 @@ RECENT VISUAL NOTES (last 30s):
 
 Generate a JSON response with EXACTLY this structure:
 {
-  "documentSummary": "A DETAILED, comprehensive markdown document summarizing the ENTIRE session from the beginning. Write it like professional meeting minutes. CRITICAL: You MUST include at least one Mermaid.js diagram visualizing a key process, architecture, decision tree, or complex relationship discussed in the meeting. Place it where it makes the most sense. Use '# Headers' for sections (e.g. Introduction, Discussion, Key Points, Conclusions), '## Subheaders' for topics, '- Bullet points' for details, and '| Tables |' for structured data. Include specific names, numbers, and quotes when available. The document should be at least 200-500 words and grow as the session progresses.",
-  "statements": ["List of key statements, facts, or decisions made in the recent discussion"],
-  "questions": ["List of questions raised in the RECENT 30s window ONLY"],
+  "documentSummary": "A concise markdown summary of the session so far. Be PROPORTIONAL — if only a few sentences were said, write a short summary. Use '# Headers' for sections and '- Bullets' for key points. Only include a Mermaid diagram if a process or architecture was actually discussed. Do NOT pad or inflate the summary beyond what was actually discussed.",
+  "statements": ["Key facts or decisions from the discussion — keep each item to 1 sentence"],
+  "questions": ["Questions raised in the RECENT 30s window ONLY"],
   "followUpQuestions": [
     {
-      "question": "A smart, highly specific follow-up question the listener should ask the speaker to dig deeper or clarify the current topic.",
+      "question": "A specific follow-up question relevant to the current topic.",
       "answer": null 
     }
   ]
 }
 
 Rules:
-- Write the 'documentSummary' as a DETAILED and COMPREHENSIVE narrative. Do NOT be brief or overly concise. Include context, explanations, and specific details. It should read like professional meeting minutes that someone who missed the meeting could fully understand.
-- Reference both what was said AND what was shown on screen.
-- You MUST create a Mermaid diagram if the discussion involves any logical flows, systems, steps, algorithms, or connected ideas.
-- The 'documentSummary' should be a continuously evolving narrative of the whole session, growing longer as more content is discussed.
-- CRITICAL: For 'statements', you MUST KEEP ALL IMPORTANT ITEMS from the PREVIOUS STATE and APPEND any new ones from the recent transcript. Do NOT delete old statements just because they aren't in the recent 30s window.
-- CRITICAL: For 'questions', generate ONLY questions that are relevant to the MOST RECENT 30-second window. Do NOT accumulate old questions from previous rounds. Fresh questions only.
-- CRITICAL: For 'followUpQuestions', generate up to 3 NEW open questions with "answer": null that are relevant to the MOST RECENT discussion. If a previously suggested question has been ANSWERED in the recent discussion, keep it but set "answer" to the actual answer. Drop any old unanswered follow-up questions that are no longer relevant.
-- ALWAYS respond ONLY with valid JSON, no markdown blocks or commentary.`
+- Be CONCISE and PROPORTIONAL. Short transcript = short summary. Do NOT generate 500 words from 2 sentences of input.
+- Reference what was said AND what was shown on screen, but only if relevant.
+- Only create a Mermaid diagram if a logical flow, system, or architecture was ACTUALLY discussed.
+- For 'statements': KEEP all important items from PREVIOUS STATE and append new ones. Do NOT delete old statements.
+- For 'questions': generate ONLY questions from the MOST RECENT 30-second window. Do NOT accumulate old questions.
+- For 'followUpQuestions': up to 3 relevant open questions. If a previous question was answered, keep it with the answer. Drop irrelevant old ones.
+- ALWAYS respond with valid JSON only, no markdown blocks or commentary.`
 
 export class SummaryEngine extends EventEmitter {
   private buffer: ContextEntry[] = []
@@ -165,8 +164,8 @@ export class SummaryEngine extends EventEmitter {
       // Instruct LLM to skip the documentSummary generation to save tokens and time
       prompt += `\n\nCRITICAL OVERRIDE: Skip generating the 'documentSummary' this time. Set "documentSummary": null. Focus ONLY on extracting statements, questions, and followUpQuestions.`
     } else {
-      // For full document cycle, emphasize the document is the PRIMARY output
-      prompt += `\n\nCRITICAL: This is a FULL DOCUMENT GENERATION cycle. The 'documentSummary' is the PRIMARY and most important output. Write it as a LONG, detailed professional document (at minimum 300-800 words). Cover ALL topics discussed throughout the entire session with rich detail, context, and structure. You MUST include a Mermaid.js diagram visualizing a key concept from the meeting. Use headers, subheaders, bullet lists, and tables where appropriate. Do NOT write a brief overview — write comprehensive meeting minutes. The statements, questions, and followUpQuestions are secondary.`
+      // Full doc cycle — but still proportional
+      prompt += `\n\nThis is a FULL DOCUMENT GENERATION cycle. Write a thorough but proportional documentSummary covering all topics discussed so far. Use markdown headers, bullets, and tables where helpful. Include a Mermaid diagram ONLY if a process or architecture was discussed. The length should match the amount of actual content discussed — do NOT inflate.`
     }
 
     try {
@@ -218,7 +217,7 @@ export class SummaryEngine extends EventEmitter {
           { role: 'user', content: prompt }
         ],
         temperature: 0.3,
-        max_completion_tokens: isFullDocument ? 4000 : 800,
+        max_completion_tokens: isFullDocument ? 1500 : 500,
         response_format: { type: 'json_object' }
       })
     })
@@ -248,7 +247,7 @@ export class SummaryEngine extends EventEmitter {
           contents: [{ parts: [{ text: prompt }] }],
           generationConfig: {
             temperature: 0.3,
-            maxOutputTokens: isFullDocument ? 4000 : 800,
+            maxOutputTokens: isFullDocument ? 1500 : 500,
             responseMimeType: 'application/json'
           }
         })
