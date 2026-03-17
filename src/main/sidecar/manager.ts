@@ -40,46 +40,59 @@ export class SidecarManager extends EventEmitter {
     if (this.isRunning) return
 
     console.log('[SidecarManager] Starting Python ASR sidecar...')
+    console.log(`[SidecarManager] Python path: "${this.pythonPath}", cwd: "${this.sidecarDir}"`)
 
-    // Spawn Python process
-    this.process = spawn(this.pythonPath, ['server.py'], {
-      cwd: this.sidecarDir,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env }
-    })
+    try {
+      // Spawn Python process
+      this.process = spawn(this.pythonPath, ['server.py'], {
+        cwd: this.sidecarDir,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env: { ...process.env }
+      })
 
-    this.process.stdout?.on('data', (data: Buffer) => {
-      const message = data.toString().trim()
-      console.log(`[Sidecar] ${message}`)
+      // Handle spawn errors (e.g. python not found)
+      this.process.on('error', (err: NodeJS.ErrnoException) => {
+        if (err.code === 'ENOENT') {
+          console.warn(`[SidecarManager] ⚠️ Python not found at "${this.pythonPath}". ASR will be disabled.`)
+          console.warn('[SidecarManager] Install Python and faster-whisper, or set the correct python path in settings.')
+        } else {
+          console.error('[SidecarManager] Spawn error:', err.message)
+        }
+        this.isRunning = false
+        this.process = null
+      })
 
-      // Connect WebSocket when server is ready
-      if (message.includes('Ready to receive')) {
+      this.process.stdout?.on('data', (data: Buffer) => {
+        const message = data.toString().trim()
+        console.log(`[Sidecar] ${message}`)
+
+        // Connect WebSocket when server is ready
+        if (message.includes('Ready to receive')) {
+          this.connectWebSocket()
+        }
+      })
+
+      this.process.stderr?.on('data', (data: Buffer) => {
+        console.error(`[Sidecar Error] ${data.toString().trim()}`)
+      })
+
+      this.process.on('exit', (code) => {
+        console.log(`[SidecarManager] Process exited with code ${code}`)
+        this.isRunning = false
+        this.ws = null
+        // Do NOT auto-restart — user should fix the issue and restart manually
+      })
+
+      this.isRunning = true
+
+      // Give the server a moment to start, then try connecting
+      await new Promise(resolve => setTimeout(resolve, 3000))
+      if (this.isRunning && !this.ws) {
         this.connectWebSocket()
       }
-    })
-
-    this.process.stderr?.on('data', (data: Buffer) => {
-      console.error(`[Sidecar Error] ${data.toString().trim()}`)
-    })
-
-    this.process.on('exit', (code) => {
-      console.log(`[SidecarManager] Process exited with code ${code}`)
+    } catch (err: any) {
+      console.warn('[SidecarManager] Failed to start sidecar:', err?.message || err)
       this.isRunning = false
-      this.ws = null
-
-      // Auto-restart if it crashed
-      if (code !== 0 && code !== null) {
-        console.log('[SidecarManager] Attempting restart in 3s...')
-        this.reconnectTimer = setTimeout(() => this.start(), 3000)
-      }
-    })
-
-    this.isRunning = true
-
-    // Give the server a moment to start, then try connecting
-    await new Promise(resolve => setTimeout(resolve, 3000))
-    if (!this.ws) {
-      this.connectWebSocket()
     }
   }
 
