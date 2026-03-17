@@ -368,16 +368,60 @@ function App() {
       {view === 'viewing' && loadedSession && (
         <>
           <header className="topbar">
-            <div className="topbar__right">
-              <span className="topbar__meta">
-                {new Date(loadedSession.session.created_at).toLocaleString()}
-                {loadedSession.session.duration_seconds && ` · ${formatTime(loadedSession.session.duration_seconds)}`}
-              </span>
+            <div className="topbar__center">
+              <div className="search-bar">
+                <span className="search-bar__icon">🔍</span>
+                <input
+                  type="text"
+                  className="search-bar__input"
+                  placeholder="Search across all meetings..."
+                  value={searchQuery}
+                  onChange={e => handleSearch(e.target.value)}
+                />
+                {searching && <span className="search-bar__spinner" />}
+                {searchResults !== null && (
+                  <div className="search-results">
+                    {searchResults.length === 0 ? (
+                      <div className="search-results__empty">No matches found</div>
+                    ) : (
+                      searchResults.slice(0, 8).map((r: any, i: number) => {
+                        const text = (r.content || r.text || '').slice(0, 200)
+                        const query = searchQuery.toLowerCase()
+                        const idx = text.toLowerCase().indexOf(query)
+                        return (
+                          <div key={i} className="search-results__item" onClick={() => {
+                            if (r.session_id) handleLoadSession(r.session_id)
+                            setSearchQuery(''); setSearchResults(null)
+                          }}>
+                            {r.session_title && (
+                              <div className="search-results__session">
+                                <span className="search-results__session-icon">📝</span>
+                                {r.session_title}
+                              </div>
+                            )}
+                            <div className="search-results__text" dangerouslySetInnerHTML={{
+                              __html: idx >= 0
+                                ? text.slice(0, idx) + '<mark>' + text.slice(idx, idx + query.length) + '</mark>' + text.slice(idx + query.length)
+                                : text
+                            }} />
+                          </div>
+                        )
+                      })
+                    )}
+                    <button className="search-results__close" onClick={() => { setSearchQuery(''); setSearchResults(null) }}>Close</button>
+                  </div>
+                )}
+              </div>
             </div>
+            <div className="topbar__right" />
           </header>
 
           <div className="session-header">
             <h2 className="session-header__title">{loadedSession.session.title || 'Untitled Session'}</h2>
+            <span className="session-header__date">
+              {new Date(loadedSession.session.created_at).toLocaleString()}
+              {loadedSession.session.duration_seconds && ` · ${formatTime(loadedSession.session.duration_seconds)}`}
+            </span>
             {loadedSession.tags.length > 0 && (
               <div className="session-header__tags">
                 {loadedSession.tags.map((tag: any) => (

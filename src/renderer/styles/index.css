@@ -488,8 +488,16 @@ body {
   font-size: 14px;
   font-weight: 600;
   color: var(--text);
-  margin: 0 0 4px 0;
+  margin: 0 0 2px 0;
   letter-spacing: -0.02em;
+}
+
+.session-header__date {
+  font-size: 10px;
+  color: var(--text-3);
+  font-family: var(--mono);
+  display: block;
+  margin-bottom: 4px;
 }
 
 .session-header__tags {
