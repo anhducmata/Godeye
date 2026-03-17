@@ -202,19 +202,11 @@ function App() {
             </div>
             <div className="modal__field">
               <label>Color Theme</label>
-              <div className="theme-grid">
+              <select value={colorTheme} onChange={e => setColorTheme(e.target.value)}>
                 {Object.entries(THEMES).map(([key, theme]) => (
-                  <button
-                    key={key}
-                    className={`theme-swatch ${colorTheme === key ? 'theme-swatch--active' : ''}`}
-                    style={{ background: theme.preview }}
-                    onClick={() => setColorTheme(key)}
-                    title={theme.label}
-                  >
-                    <span className="theme-swatch__label">{theme.label}</span>
-                  </button>
+                  <option key={key} value={key}>{theme.label}</option>
                 ))}
-              </div>
+              </select>
             </div>
             <div className="modal__actions">
               <button className="btn" onClick={() => setShowSettings(false)}>Cancel</button>
