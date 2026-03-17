@@ -33,7 +33,7 @@ html, body, #root { height: 100%; overflow: hidden; }
 
 body {
   font-family: var(--font);
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text);
   background: var(--bg);
   -webkit-font-smoothing: antialiased;
@@ -485,7 +485,7 @@ body {
 }
 
 .session-header__title {
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 600;
   color: var(--text);
   margin: 0 0 2px 0;
@@ -537,7 +537,7 @@ body {
 }
 
 .search-page__title {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 500;
   color: var(--text-2);
   margin: 0;
@@ -788,7 +788,7 @@ body {
 }
 
 .theme-swatch__label {
-  font-size: 8px;
+  font-size: 9px;
   color: rgba(255, 255, 255, 0.8);
   font-family: var(--font);
   font-weight: 500;
@@ -856,7 +856,7 @@ body {
 }
 
 .sessions-view__title {
-  font-size: 22px;
+  font-size: 15px;
   font-weight: 600;
   letter-spacing: -0.03em;
   color: var(--text);
@@ -926,7 +926,7 @@ body {
 }
 
 .btn-new-session__icon {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 300;
 }
 
@@ -1353,7 +1353,7 @@ body {
 }
 
 .document-summary h1 {
-  font-size: 15px;
+  font-size: 13px;
   font-weight: 700;
   color: var(--text);
   margin: 16px 0 8px;
@@ -1610,7 +1610,7 @@ body {
   border: 1px solid var(--border-lit);
   background: var(--bg-card);
   color: var(--text-2);
-  font-size: 18px;
+  font-size: 13px;
   cursor: pointer;
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
   transition: all 0.2s;
