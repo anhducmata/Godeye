@@ -302,7 +302,9 @@ export function initializeHandlers(window: BrowserWindow) {
                 saveSummary(sid, {
                   document_summary: summaryState.documentSummary || '',
                   statements: summaryState.statements || [],
+                  facts: summaryState.facts || [],
                   questions: summaryState.questions || [],
+                  unclear_points: summaryState.unclear_points || [],
                   follow_ups: []
                 }).catch(err => console.error('[IPC] Save summary failed:', err))
               )

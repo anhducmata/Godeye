@@ -513,32 +513,54 @@ function App() {
                   <>
                     <div style={{ flex: '0 0 60%', overflowY: 'auto', padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                       <div className="mindmap">
-                        {loadedSession.summary.statements?.length > 0 ? (
+                        {loadedSession.summary.statements?.length > 0 && (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">💬 Statements, Facts & Questions</div>
-                            {loadedSession.summary.statements.map((d: any, i: number) => {
-                              const item = typeof d === 'string' ? { type: 'statement', text: d, time: '' } : d
-                              return (
-                                <div key={i} className="mindmap__leaf">
-                                  <span className={`mindmap__badge mindmap__badge--${item.type}`} title={item.type.charAt(0).toUpperCase() + item.type.slice(1)}>{item.type.charAt(0).toUpperCase()}</span>
-                                  {item.time && <span className="mindmap__time">{item.time}</span>}
-                                  <span>{item.text}</span>
-                                </div>
-                              )
-                            })}
+                            <div className="mindmap__label">💬 Statements</div>
+                            {loadedSession.summary.statements.map((d: any, i: number) => (
+                              <div key={i} className="mindmap__leaf">
+                                <span className="mindmap__badge mindmap__badge--statement" title="Statement">S</span>
+                                <span>{typeof d === 'string' ? d : d.text}</span>
+                              </div>
+                            ))}
                           </div>
-                        ) : (
-                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No statements recorded</p>
+                        )}
+                        {loadedSession.summary.facts?.length > 0 && (
+                          <div className="mindmap__branch">
+                            <div className="mindmap__label">📌 Facts</div>
+                            {loadedSession.summary.facts.map((d: any, i: number) => (
+                              <div key={i} className="mindmap__leaf">
+                                <span className="mindmap__badge mindmap__badge--fact" title="Fact">F</span>
+                                <span>{typeof d === 'string' ? d : d.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {loadedSession.summary.questions?.length > 0 && (
+                          <div className="mindmap__branch">
+                            <div className="mindmap__label">❓ Questions</div>
+                            {loadedSession.summary.questions.map((q: string, i: number) => (
+                              <div key={i} className="mindmap__leaf">
+                                <span className="mindmap__badge mindmap__badge--question" title="Question">Q</span>
+                                <span>{q}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {!loadedSession.summary.statements?.length && !loadedSession.summary.facts?.length && !loadedSession.summary.questions?.length && (
+                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No items recorded</p>
                         )}
                       </div>
                     </div>
                     <div style={{ flex: '0 0 40%', overflowY: 'auto', padding: '16px' }}>
                       <div className="mindmap">
-                        {loadedSession.summary.questions?.length > 0 ? (
+                        {loadedSession.summary.unclear_points?.length > 0 ? (
                           <div className="mindmap__branch">
                             <div className="mindmap__label">🔍 Unclear Points</div>
-                            {loadedSession.summary.questions.map((q: string, i: number) => (
-                              <div key={i} className="mindmap__leaf">{q}</div>
+                            {loadedSession.summary.unclear_points.map((u: any, i: number) => (
+                              <div key={i} className="mindmap__leaf">
+                                <span className={`mindmap__badge mindmap__badge--${u.type || 'question'}`} title={u.type || 'question'}>{(u.type || 'q').charAt(0).toUpperCase()}</span>
+                                <span>{typeof u === 'string' ? u : u.text}</span>
+                              </div>
                             ))}
                           </div>
                         ) : (
@@ -686,37 +708,58 @@ function App() {
                   <>
                     <div style={{ flex: '0 0 60%', overflowY: 'auto', padding: '16px', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
                       <div className="mindmap">
-                        {summary.statements?.length > 0 ? (
+                        {summary.statements?.length > 0 && (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">💬 Statements, Facts & Questions</div>
-                            {summary.statements.map((d: any, i: number) => {
-                              const item = typeof d === 'string' ? { type: 'statement', text: d, time: '' } : d
-                              return (
-                                <div key={i} className="mindmap__leaf">
-                                  <span className={`mindmap__badge mindmap__badge--${item.type}`}>{item.type}</span>
-                                  {item.time && <span className="mindmap__time">{item.time}</span>}
-                                  <span>{item.text}</span>
-                                </div>
-                              )
-                            })}
+                            <div className="mindmap__label">💬 Statements</div>
+                            {summary.statements.map((d: any, i: number) => (
+                              <div key={i} className="mindmap__leaf">
+                                <span className="mindmap__badge mindmap__badge--statement" title="Statement">S</span>
+                                <span>{typeof d === 'string' ? d : d.text}</span>
+                              </div>
+                            ))}
                           </div>
-                        ) : (
-                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No statements yet...</p>
+                        )}
+                        {summary.facts?.length > 0 && (
+                          <div className="mindmap__branch">
+                            <div className="mindmap__label">📌 Facts</div>
+                            {summary.facts.map((d: any, i: number) => (
+                              <div key={i} className="mindmap__leaf">
+                                <span className="mindmap__badge mindmap__badge--fact" title="Fact">F</span>
+                                <span>{typeof d === 'string' ? d : d.text}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {summary.questions?.length > 0 && (
+                          <div className="mindmap__branch">
+                            <div className="mindmap__label">❓ Questions</div>
+                            {summary.questions.map((q: string, i: number) => (
+                              <div key={i} className="mindmap__leaf">
+                                <span className="mindmap__badge mindmap__badge--question" title="Question">Q</span>
+                                <span>{q}</span>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                        {!summary.statements?.length && !summary.facts?.length && !summary.questions?.length && (
+                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No items yet...</p>
                         )}
                       </div>
                       <div ref={statementsEndRef} />
                     </div>
                     <div style={{ flex: '0 0 40%', overflowY: 'auto', padding: '16px' }}>
                       <div className="mindmap">
-                        {summary.questions?.length > 0 && (
+                        {summary.unclear_points?.length > 0 ? (
                           <div className="mindmap__branch">
                             <div className="mindmap__label">🔍 Unclear Points</div>
-                            {summary.questions.map((q: string, i: number) => (
-                              <div key={i} className="mindmap__leaf">{q}</div>
+                            {summary.unclear_points.map((u: any, i: number) => (
+                              <div key={i} className="mindmap__leaf">
+                                <span className={`mindmap__badge mindmap__badge--${u.type || 'question'}`} title={u.type || 'question'}>{(u.type || 'q').charAt(0).toUpperCase()}</span>
+                                <span>{typeof u === 'string' ? u : u.text}</span>
+                              </div>
                             ))}
                           </div>
-                        )}
-                        {summary.questions?.length === 0 && (
+                        ) : (
                           <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No unclear points yet...</p>
                         )}
                       </div>

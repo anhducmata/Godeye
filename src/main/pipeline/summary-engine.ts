@@ -16,33 +16,34 @@ export interface FollowUpQuestion {
   answer: string | null
 }
 
-export interface StatementItem {
-  type: 'statement' | 'fact' | 'question'
+export interface UnclearPoint {
+  type: 'question' | 'risk' | 'dependency' | 'decision'
   text: string
-  time: string   // elapsed time like '02:15'
 }
 
 export interface SummaryState {
   timestamp: number
   documentSummary: string
-  statements: (string | StatementItem)[]
+  statements: string[]
+  facts: string[]
   questions: string[]
+  unclear_points: UnclearPoint[]
   followUpQuestions: FollowUpQuestion[]
   documentType?: string
 }
 
 let _totalTokens = 0
 
-const SUMMARY_PROMPT = `You are a meeting/session observer AI analyzing a live discussion.
+const SUMMARY_PROMPT = `You are a meeting conversation analyzer.
+Your job is to extract ONLY meaningful information from the conversation.
+IMPORTANT: Write your entire response in: {target_language}
+The session has been running for {elapsed_time} so far.
+
+Ignore: greetings, filler words, repeated ideas, small talk.
 
 You receive two streams of data:
 1. TRANSCRIPT: What people are saying (speech-to-text)
 2. VISUAL: What's on screen (OCR from captured screen area)
-
-Based on these inputs and the previous state, generate an updated summary.
-IMPORTANT: Write your entire response in: {target_language}
-
-The session has been running for {elapsed_time} so far.
 
 PREVIOUS STATE:
 {previous_summary}
@@ -53,33 +54,41 @@ RECENT TRANSCRIPT (last 30s):
 RECENT VISUAL NOTES (last 30s):
 {recent_visual}
 
+Classify each meaningful item into:
+- statement: ideas, opinions, suggestions, proposals
+- fact: confirmed information, data, decisions, conclusions
+- question: anything asked during the conversation
+- unclear_point: unresolved issues that impact outcome
+
+For unclear_point, also classify the sub-type:
+- question: unanswered question
+- risk: potential problem or concern
+- dependency: something that blocks progress
+- decision: a decision that needs to be made
+
 Generate a JSON response with EXACTLY this structure:
 {
-  "documentSummary": "A concise markdown summary of the session so far. Be PROPORTIONAL — if only a few sentences were said, write a short summary. Use '# Headers' for sections and '- Bullets' for key points. Only include a Mermaid diagram if a process or architecture was actually discussed. Do NOT pad or inflate the summary beyond what was actually discussed.",
-  "statements": [
-    { "type": "statement", "text": "Someone said or claimed something", "time": "02:15" },
-    { "type": "fact", "text": "A verified fact or decision was made", "time": "03:40" },
-    { "type": "question", "text": "A question was asked in the conversation", "time": "04:10" }
+  "documentSummary": "A concise markdown summary. Be PROPORTIONAL to what was discussed. Use # Headers and - Bullets. Only include Mermaid diagram if a process was actually discussed.",
+  "statements": ["idea or opinion expressed - max 1 sentence each"],
+  "facts": ["confirmed information or decision - max 1 sentence each"],
+  "questions": ["question asked in the conversation - max 1 sentence each"],
+  "unclear_points": [
+    { "type": "risk", "text": "potential issue identified" },
+    { "type": "dependency", "text": "something that blocks progress" },
+    { "type": "decision", "text": "decision needed" },
+    { "type": "question", "text": "unanswered question" }
   ],
-  "questions": ["Unclear points or ambiguities from the RECENT 30s window ONLY"],
   "followUpQuestions": [
-    {
-      "question": "A specific follow-up question relevant to the current topic.",
-      "answer": null 
-    }
+    { "question": "A follow-up question relevant to the current topic.", "answer": null }
   ]
 }
 
 Rules:
-- Be CONCISE and PROPORTIONAL. Short transcript = short summary. Do NOT generate 500 words from 2 sentences of input.
-- Reference what was said AND what was shown on screen, but only if relevant.
-- Only create a Mermaid diagram if a logical flow, system, or architecture was ACTUALLY discussed.
-- For 'statements': KEEP all important items from PREVIOUS STATE and append new ones. Do NOT delete old statements. Each item MUST have 'type' (statement, fact, or question), 'text' (1 sentence), and 'time' (elapsed timestamp mm:ss).
-  - Use type='statement' for opinions, claims, proposals.
-  - Use type='fact' for verified facts, data points, decisions, conclusions.
-  - Use type='question' for questions asked during the conversation.
-- For 'questions': generate ONLY unclear points or ambiguities from the MOST RECENT 30-second window. Do NOT accumulate old entries.
-- For 'followUpQuestions': up to 3 relevant open questions. If a previous question was answered, keep it with the answer. Drop irrelevant old ones.
+- Keep each item SHORT (max 1 sentence). Remove redundancy. Focus on impact. Merge similar items.
+- KEEP all items from PREVIOUS STATE and append new ones. Do NOT delete old items.
+- For 'unclear_points': generate ONLY from the MOST RECENT 30-second window. Do NOT accumulate old entries.
+- For 'followUpQuestions': up to 3 relevant open questions. If answered, keep with answer. Drop irrelevant old ones.
+- Be CONCISE and PROPORTIONAL. Short transcript = short output.
 - ALWAYS respond with valid JSON only, no markdown blocks or commentary.`
 
 export class SummaryEngine extends EventEmitter {
@@ -186,7 +195,7 @@ export class SummaryEngine extends EventEmitter {
 
     if (!shouldGenerateDocument) {
       // Instruct LLM to skip the documentSummary generation to save tokens and time
-      prompt += `\n\nCRITICAL OVERRIDE: Skip generating the 'documentSummary' this time. Set "documentSummary": null. Focus ONLY on extracting statements, questions, and followUpQuestions.`
+      prompt += `\n\nCRITICAL OVERRIDE: Skip generating the 'documentSummary' this time. Set "documentSummary": null. Focus ONLY on extracting statements, facts, questions, unclear_points, and followUpQuestions.`
     } else {
       // Full doc cycle — but still proportional
       prompt += `\n\nThis is a FULL DOCUMENT GENERATION cycle. Write a thorough but proportional documentSummary covering all topics discussed so far. Use markdown headers, bullets, and tables where helpful. Include a Mermaid diagram ONLY if a process or architecture was discussed. The length should match the amount of actual content discussed — do NOT inflate.`
@@ -205,7 +214,9 @@ export class SummaryEngine extends EventEmitter {
         result.timestamp = now
         // Clean up arrays if AI returns null/undefined
         result.statements = result.statements || []
+        result.facts = result.facts || []
         result.questions = result.questions || []
+        result.unclear_points = result.unclear_points || []
         result.followUpQuestions = result.followUpQuestions || []
 
         // If we skipped doc generation, manually stitch the previous doc summary back in

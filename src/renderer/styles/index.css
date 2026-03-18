@@ -1310,6 +1310,21 @@ body {
   color: #ec4899;
 }
 
+.mindmap__badge--risk {
+  background: rgba(239, 68, 68, 0.12);
+  color: #f87171;
+}
+
+.mindmap__badge--dependency {
+  background: rgba(251, 146, 60, 0.12);
+  color: #fb923c;
+}
+
+.mindmap__badge--decision {
+  background: rgba(168, 85, 247, 0.12);
+  color: #a855f7;
+}
+
 .mindmap__time {
   font-size: 8px;
   font-family: var(--mono);

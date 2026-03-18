@@ -26,8 +26,10 @@ export interface FollowUpQuestion {
 export interface SummaryData {
   timestamp: number
   documentSummary: string
-  statements: string[]
+  statements: any[]
+  facts: any[]
   questions: string[]
+  unclear_points: any[]
   followUpQuestions: FollowUpQuestion[]
 }
 

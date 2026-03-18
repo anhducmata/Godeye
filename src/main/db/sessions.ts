@@ -102,14 +102,16 @@ export async function saveTranscripts(sessionId: string, transcripts: Omit<Trans
 export async function saveSummary(sessionId: string, summary: {
   document_summary: string
   statements: any[]
+  facts: any[]
   questions: string[]
+  unclear_points: any[]
   follow_ups: any[]
 }): Promise<void> {
   const pool = getPool()
   await pool.query(
     `INSERT INTO summaries (session_id, document_summary, statements, questions, follow_ups)
      VALUES ($1, $2, $3, $4, $5)`,
-    [sessionId, summary.document_summary, JSON.stringify(summary.statements), JSON.stringify(summary.questions), JSON.stringify(summary.follow_ups)]
+    [sessionId, summary.document_summary, JSON.stringify({ statements: summary.statements, facts: summary.facts, unclear_points: summary.unclear_points }), JSON.stringify(summary.questions), JSON.stringify(summary.follow_ups)]
   )
   console.log(`[DB] Summary saved for session ${sessionId}`)
 }
