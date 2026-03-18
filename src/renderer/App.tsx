@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './components/MermaidBlock'
 import { Sidebar, SidebarHandle } from './components/Sidebar'
 import { ChatWidget } from './components/ChatWidget'
-import { Mic, Video, Camera, Music, Film, Image, FileText, ClipboardPaste, Square, ChevronDown } from 'lucide-react'
+import { Mic, Video, Camera, Music, Film, Image, FileText, ClipboardPaste, Square, ChevronDown, Volume2 } from 'lucide-react'
 
 type AppView = 'sessions' | 'recording' | 'viewing' | 'search'
 
@@ -286,6 +286,19 @@ function App() {
                 ))}
               </select>
             </div>
+            <div className="modal__field">
+              <label>Language</label>
+              <select value={language} onChange={e => setLanguage(e.target.value)}>
+                <option value="English">English</option>
+                <option value="Vietnamese">Vietnamese</option>
+                <option value="Spanish">Spanish</option>
+                <option value="French">French</option>
+                <option value="German">German</option>
+                <option value="Japanese">Japanese</option>
+                <option value="Korean">Korean</option>
+                <option value="Chinese (Simplified)">Chinese</option>
+              </select>
+            </div>
             <div className="modal__actions">
               <button className="btn" onClick={() => setShowSettings(false)}>Cancel</button>
               <button className="btn btn--primary" onClick={handleSaveSettings}>Save</button>
@@ -366,27 +379,13 @@ function App() {
                   <label className="toggle-pill">
                     <input type="checkbox" checked={options.systemAudio}
                       onChange={e => setOptions({ ...options, systemAudio: e.target.checked })} />
-                    <span>🔊 System</span>
+                    <span><Volume2 size={13} /> System</span>
                   </label>
                   <label className="toggle-pill">
                     <input type="checkbox" checked={options.microphone}
                       onChange={e => setOptions({ ...options, microphone: e.target.checked })} />
-                    <span>🎤 Mic</span>
+                    <span><Mic size={13} /> Mic</span>
                   </label>
-                  <select
-                    className="lang-select"
-                    value={language}
-                    onChange={(e) => setLanguage(e.target.value)}
-                  >
-                    <option value="English">English</option>
-                    <option value="Vietnamese">Vietnamese</option>
-                    <option value="Spanish">Spanish</option>
-                    <option value="French">French</option>
-                    <option value="German">German</option>
-                    <option value="Japanese">Japanese</option>
-                    <option value="Korean">Korean</option>
-                    <option value="Chinese (Simplified)">Chinese</option>
-                  </select>
                 </div>
               )}
               <div className="btn-split">

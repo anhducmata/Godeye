@@ -882,6 +882,7 @@ body {
 }
 
 .toggle-pill input { display: none; }
+.toggle-pill span { display: inline-flex; align-items: center; gap: 4px; }
 
 /* ================================================
    SESSIONS VIEW

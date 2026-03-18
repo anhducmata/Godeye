@@ -216,16 +216,21 @@ export function useCapture() {
           const micSource = audioCtx.createMediaStreamSource(micStream)
           const merger = audioCtx.createChannelMerger(2)
           
-          sysSource.connect(merger, 0, 0) // connect to L channel
-          micSource.connect(merger, 0, 1) // connect to R channel
-          // Merge to mono for our processor
-          sysSource.connect(audioCtx.destination) // Optional: output for speaker if needed, but we don't
+          // Reduce mic gain to avoid echo from speakers
+          const micGain = audioCtx.createGain()
+          micGain.gain.value = 0.3
+          
+          sysSource.connect(merger, 0, 0) // system audio → L channel
+          micSource.connect(micGain)
+          micGain.connect(merger, 0, 1) // reduced mic → R channel
           
           const processor = audioCtx.createScriptProcessor(4096, 2, 1)
           processorRef.current = processor
           
           merger.connect(processor)
+          // Connect to a silent destination (required for processing to work, but don't play audio)
           processor.connect(audioCtx.destination)
+          audioCtx.destination.channelCount = 1
           
           let chunkCount = 0
           processor.onaudioprocess = (e) => {
