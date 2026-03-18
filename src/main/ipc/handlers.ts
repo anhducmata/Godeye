@@ -554,16 +554,18 @@ Respond in this exact JSON format:
         }))
       }
 
-      // Full-text search: case-insensitive ILIKE on transcripts + session titles
-      const pattern = `%${query}%`
+      // Full-text search: split into words, match ALL words (AND logic)
+      const words = query.trim().split(/\s+/).filter(w => w.length > 0)
+      const conditions = words.map((_, i) => `(t.text ILIKE $${i + 1} OR s.title ILIKE $${i + 1})`).join(' AND ')
+      const params = words.map(w => `%${w}%`)
       const res = await pool.query(`
         SELECT t.session_id, s.title as session_title, t.text, t.speaker, t.start_sec
         FROM transcripts t
         JOIN sessions s ON s.id = t.session_id
-        WHERE t.text ILIKE $1 OR s.title ILIKE $1
+        WHERE ${conditions}
         ORDER BY s.created_at DESC, t.id
         LIMIT 50
-      `, [pattern])
+      `, params)
       return res.rows.map((r: any) => ({
         session_id: r.session_id,
         session_title: r.session_title || 'Untitled Session',

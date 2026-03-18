@@ -386,32 +386,35 @@ function App() {
               <div className="search-page__results">
                 {searchResults.map((r: any, i: number) => {
                   const text = (r.content || r.text || '')
-                  const query = searchQuery.toLowerCase()
-                  // Highlight ALL occurrences
-                  const highlighted = text.replace(
-                    new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
-                    '<mark>$1</mark>'
-                  )
+                  // Highlight each word separately
+                  const words = searchQuery.trim().split(/\s+/).filter(w => w.length > 0)
+                  const escapedWords = words.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+                  const highlighted = escapedWords.length > 0
+                    ? text.replace(new RegExp(`(${escapedWords.join('|')})`, 'gi'), '<mark>$1</mark>')
+                    : text
                   return (
-                    <div key={i} className="search-page__item" onClick={() => {
-                      if (r.session_id) handleLoadSession(r.session_id)
-                      setSearchQuery(''); setSearchResults(null)
-                    }}>
-                      <div className="search-page__item-header">
-                        {r.session_title && (
-                          <div className="search-page__item-session">
-                            <span>📝</span>
-                            {r.session_title}
-                          </div>
-                        )}
-                        {r.speaker && (
-                          <span className="search-page__item-speaker">
-                            {r.speaker.replace(/SPEAKER_(\d+)/g, (_: string, n: string) => `Person ${parseInt(n) + 1}`)}
-                          </span>
-                        )}
+                    <React.Fragment key={i}>
+                      {i > 0 && <hr />}
+                      <div className="search-page__item" onClick={() => {
+                        if (r.session_id) handleLoadSession(r.session_id)
+                        setSearchQuery(''); setSearchResults(null)
+                      }}>
+                        <div className="search-page__item-header">
+                          {r.session_title && (
+                            <div className="search-page__item-session">
+                              <span>📝</span>
+                              {r.session_title}
+                            </div>
+                          )}
+                          {r.speaker && (
+                            <span className="search-page__item-speaker">
+                              {r.speaker.replace(/SPEAKER_(\d+)/g, (_: string, n: string) => `Person ${parseInt(n) + 1}`)}
+                            </span>
+                          )}
+                        </div>
+                        <div className="search-page__item-text" dangerouslySetInnerHTML={{ __html: highlighted }} />
                       </div>
-                      <div className="search-page__item-text" dangerouslySetInnerHTML={{ __html: highlighted }} />
-                    </div>
+                    </React.Fragment>
                   )
                 })}
               </div>

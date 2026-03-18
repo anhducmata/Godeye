@@ -612,20 +612,24 @@ body {
 .search-page__results {
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 0;
+}
+
+.search-page__results hr {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 0;
 }
 
 .search-page__item {
-  padding: 12px 14px;
-  border-radius: var(--radius-sm);
+  padding: 12px 0;
   cursor: pointer;
   transition: background 0.1s;
-  border: 1px solid var(--border);
+  border: none;
 }
 
 .search-page__item:hover {
   background: var(--bg-hover);
-  border-color: var(--border-lit);
 }
 
 .search-page__item-session {
