@@ -75,8 +75,12 @@ export async function getSession(id: string): Promise<Session | null> {
 
 export async function deleteSession(id: string): Promise<void> {
   const pool = getPool()
+  // Delete related rows first (foreign key constraints)
+  await pool.query(`DELETE FROM session_tags WHERE session_id = $1`, [id])
+  await pool.query(`DELETE FROM transcripts WHERE session_id = $1`, [id])
+  await pool.query(`DELETE FROM summaries WHERE session_id = $1`, [id])
   await pool.query(`DELETE FROM sessions WHERE id = $1`, [id])
-  console.log(`[DB] Session deleted: ${id}`)
+  console.log(`[DB] Session deleted (with related data): ${id}`)
 }
 
 export async function saveTranscripts(sessionId: string, transcripts: Omit<TranscriptRow, 'id' | 'session_id'>[]): Promise<void> {

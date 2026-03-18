@@ -174,7 +174,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
                 <span className="session-card__duration">{formatDuration(session.duration_seconds)}</span>
               )}
               {isProcessing && sessions.indexOf(session) === 0 && (
-                <span className="session-card__processing">⏳ Processing...</span>
+                <span className="session-card__processing">Processing...</span>
               )}
             </div>
           </div>
