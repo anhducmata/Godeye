@@ -3,6 +3,11 @@ import { EventEmitter } from 'events'
 /**
  * Live summary engine that merges audio transcription and visual OCR context,
  * then calls an LLM API to produce rolling summaries.
+ * 
+ * 3 independent cycles:
+ *   1. EXTRACTION: every 5 transcript items or 20s — extracts new items
+ *   2. COMPRESSION: every 2 min — deduplicates and merges accumulated items
+ *   3. DOCUMENT: every 15s — generates the document summary
  */
 
 export interface ContextEntry {
@@ -34,80 +39,126 @@ export interface SummaryState {
 
 let _totalTokens = 0
 
-const SUMMARY_PROMPT = `You are a meeting conversation analyzer.
-Your job is to extract ONLY meaningful information from the conversation.
+// =============================================
+// PROMPT: Extract new items from recent transcript
+// =============================================
+const EXTRACT_PROMPT = `You are a meeting conversation analyzer.
+Extract ONLY meaningful NEW information from the RECENT transcript below.
 IMPORTANT: Write your entire response in: {target_language}
-The session has been running for {elapsed_time} so far.
 
 Ignore: greetings, filler words, repeated ideas, small talk.
 
-You receive two streams of data:
-1. TRANSCRIPT: What people are saying (speech-to-text)
-2. VISUAL: What's on screen (OCR from captured screen area)
-
-PREVIOUS STATE:
-{previous_summary}
-
-RECENT TRANSCRIPT (last 30s):
+RECENT TRANSCRIPT:
 {recent_transcript}
 
-RECENT VISUAL NOTES (last 30s):
+RECENT VISUAL NOTES:
 {recent_visual}
 
-Classify each meaningful item into:
+Extract and classify each meaningful item:
 - statement: ideas, opinions, suggestions, proposals
 - fact: confirmed information, data, decisions, conclusions
 - question: anything asked during the conversation
-- unclear_point: unresolved issues that impact outcome
+- unclear_point: unresolved issues (with sub-type: question, risk, dependency, decision)
 
-For unclear_point, also classify the sub-type:
-- question: unanswered question
-- risk: potential problem or concern
-- dependency: something that blocks progress
-- decision: a decision that needs to be made
-
-Generate a JSON response with EXACTLY this structure:
+Output JSON:
 {
-  "documentSummary": "A concise markdown summary. Be PROPORTIONAL to what was discussed. Use # Headers and - Bullets. Only include Mermaid diagram if a process was actually discussed.",
-  "statements": ["idea or opinion expressed - max 1 sentence each"],
-  "facts": ["confirmed information or decision - max 1 sentence each"],
-  "questions": ["question asked in the conversation - max 1 sentence each"],
-  "unclear_points": [
-    { "type": "risk", "text": "potential issue identified" },
-    { "type": "dependency", "text": "something that blocks progress" },
-    { "type": "decision", "text": "decision needed" },
-    { "type": "question", "text": "unanswered question" }
-  ],
+  "statements": ["new statement 1"],
+  "facts": ["new fact 1"],
+  "questions": ["new question 1"],
+  "unclear_points": [{ "type": "risk", "text": "issue" }]
+}
+
+Rules:
+- ONLY extract items from the transcript above. Do NOT invent or repeat.
+- Keep each item SHORT (max 1 sentence).
+- ALWAYS respond with valid JSON only.`
+
+// =============================================
+// PROMPT: Compress / deduplicate accumulated items
+// =============================================
+const COMPRESS_PROMPT = `You are a meeting conversation analyzer.
+Compress and deduplicate the following accumulated items while keeping FULL MEANING.
+IMPORTANT: Write your entire response in: {target_language}
+
+CURRENT ITEMS:
+{current_items}
+
+Rules:
+- Merge similar or duplicate items into one
+- Remove redundant items
+- Keep FULL meaning — do not lose important information
+- Keep each item SHORT (max 1 sentence)
+- Do NOT add new items that weren't in the input
+
+Output JSON:
+{
+  "statements": ["compressed statements"],
+  "facts": ["compressed facts"],
+  "questions": ["compressed questions"],
+  "unclear_points": [{ "type": "risk|dependency|decision|question", "text": "compressed item" }]
+}
+
+ALWAYS respond with valid JSON only.`
+
+// =============================================
+// PROMPT: Generate document summary
+// =============================================
+const DOCUMENT_PROMPT = `You are a meeting summary assistant.
+Generate a concise markdown document summary based on the extracted items below.
+IMPORTANT: Write your entire response in: {target_language}
+
+The session has been running for {elapsed_time}.
+
+STATEMENTS: {statements}
+FACTS: {facts}
+QUESTIONS: {questions}
+UNCLEAR POINTS: {unclear_points}
+
+PREVIOUS DOCUMENT:
+{previous_document}
+
+Generate a JSON response:
+{
+  "documentSummary": "A concise markdown summary. Use # Headers and - Bullets. Be PROPORTIONAL to content discussed. Only include Mermaid diagram if a process was actually discussed.",
   "followUpQuestions": [
-    { "question": "A follow-up question relevant to the current topic.", "answer": null }
+    { "question": "relevant follow-up", "answer": null }
   ]
 }
 
 Rules:
-- Keep each item SHORT (max 1 sentence). Remove redundancy. Focus on impact. Merge similar items.
-- KEEP all items from PREVIOUS STATE and append new ones. Do NOT delete old items.
-- For 'unclear_points': generate ONLY from the MOST RECENT 30-second window. Do NOT accumulate old entries.
-- For 'followUpQuestions': up to 3 relevant open questions. If answered, keep with answer. Drop irrelevant old ones.
-- Be CONCISE and PROPORTIONAL. Short transcript = short output.
-- ALWAYS respond with valid JSON only, no markdown blocks or commentary.`
+- Be CONCISE and PROPORTIONAL. Short content = short summary.
+- Up to 3 followUpQuestions. If answered previously, keep with answer.
+- ALWAYS respond with valid JSON only.`
 
 export class SummaryEngine extends EventEmitter {
   private buffer: ContextEntry[] = []
   private summaryState: SummaryState | null = null
-  private lastSummaryTime = 0
-  private summaryInterval: ReturnType<typeof setInterval> | null = null
   private isRunning = false
   private apiKey: string = ''
   private apiProvider: 'openai' | 'gemini' = 'openai'
   private targetLanguage = 'English'
-  private bufferDurationMs = 15 * 60 * 1000 // Keep 15 min of context
-  private refreshIntervalMs = 15_000 // Summarize every 15s
-  private lastProcessedEntryTime = 0 // Track newest entry processed
-  private lastDocumentSummaryTime = 0 // Track when the big Document was last merged
+  private bufferDurationMs = 15 * 60 * 1000 // Keep 15 min of buffer
+
+  // Extraction cycle: every 5 items or 20s
+  private lastExtractionTime = 0
+  private lastExtractedEntryCount = 0
+  private extractionCheckInterval: ReturnType<typeof setInterval> | null = null
+
+  // Compression cycle: every 2 min
+  private lastCompressionTime = 0
+  private compressionInterval: ReturnType<typeof setInterval> | null = null
+
+  // Document cycle: every 15s
+  private documentInterval: ReturnType<typeof setInterval> | null = null
+  private lastDocumentTime = 0
+
+  // Lock to prevent concurrent API calls
+  private isExtracting = false
+  private isCompressing = false
+  private isGeneratingDoc = false
 
   constructor() {
     super()
-    // Read API key from env as fallback
     if (process.env.OPENAI_API_KEY) {
       this.apiKey = process.env.OPENAI_API_KEY
       this.apiProvider = 'openai'
@@ -130,115 +181,209 @@ export class SummaryEngine extends EventEmitter {
     // Trim old entries
     const cutoff = Date.now() - this.bufferDurationMs
     this.buffer = this.buffer.filter(e => e.timestamp > cutoff)
+
+    // Check if extraction should trigger (5 new transcript items)
+    if (this.isRunning && entry.type === 'transcript') {
+      const transcriptCount = this.buffer.filter(e => e.type === 'transcript').length
+      if (transcriptCount - this.lastExtractedEntryCount >= 5) {
+        this.runExtraction()
+      }
+    }
   }
 
   start() {
     if (this.isRunning) return
     this.isRunning = true
 
-    this.summaryInterval = setInterval(async () => {
+    // Extraction check: every 5s, check if 20s has passed since last extraction
+    this.extractionCheckInterval = setInterval(async () => {
       if (!this.apiKey) return
-      await this.generateSummary()
-    }, this.refreshIntervalMs)
+      const now = Date.now()
+      if (now - this.lastExtractionTime >= 20_000) {
+        await this.runExtraction()
+      }
+    }, 5_000)
+
+    // Compression cycle: every 2 minutes
+    this.compressionInterval = setInterval(async () => {
+      if (!this.apiKey) return
+      await this.runCompression()
+    }, 120_000)
+
+    // Document summary cycle: every 15 seconds
+    this.documentInterval = setInterval(async () => {
+      if (!this.apiKey) return
+      await this.runDocumentSummary()
+    }, 15_000)
   }
 
   stop() {
     this.isRunning = false
-    if (this.summaryInterval) {
-      clearInterval(this.summaryInterval)
-      this.summaryInterval = null
-    }
+    if (this.extractionCheckInterval) { clearInterval(this.extractionCheckInterval); this.extractionCheckInterval = null }
+    if (this.compressionInterval) { clearInterval(this.compressionInterval); this.compressionInterval = null }
+    if (this.documentInterval) { clearInterval(this.documentInterval); this.documentInterval = null }
   }
 
-  private async generateSummary(): Promise<void> {
-    const now = Date.now()
-    
-    // Check for new data: is the newest entry in the buffer newer than our last process time?
-    const newestEntryTime = this.buffer.length > 0 ? Math.max(...this.buffer.map(e => e.timestamp)) : 0
-    if (newestEntryTime <= this.lastProcessedEntryTime) {
-      return // No new data since last summary, skip generation to prevent hallucination/loops
-    }
-
-    const recentWindow = 30_000 // Last 30 seconds
-
-    const recentTranscripts = this.buffer
-      .filter(e => e.type === 'transcript' && e.timestamp > now - recentWindow)
-      .map(e => e.content)
-      .join('\n')
-
-    const recentVisual = this.buffer
-      .filter(e => e.type === 'visual' && e.timestamp > now - recentWindow)
-      .map(e => e.content)
-      .join('\n')
-
-    if (!recentTranscripts && !recentVisual) return // Nothing new
-
-    const previousSummary = this.summaryState
-      ? JSON.stringify(this.summaryState, null, 2)
-      : 'No previous summary (session just started)'
-
-    const shouldGenerateDocument = (now - this.lastDocumentSummaryTime) >= 60_000
-
-    // Construct the prompt conditionally
-    const earliestEntry = this.buffer.length > 0 ? Math.min(...this.buffer.map(e => e.timestamp)) : now
-    const elapsedSec = Math.round((now - earliestEntry) / 1000)
-    const elapsedMin = Math.floor(elapsedSec / 60).toString().padStart(2, '0')
-    const elapsedSecRem = (elapsedSec % 60).toString().padStart(2, '0')
-    const elapsedTime = `${elapsedMin}:${elapsedSecRem}`
-
-    let prompt = SUMMARY_PROMPT
-      .replace('{target_language}', this.targetLanguage)
-      .replace('{elapsed_time}', elapsedTime)
-      .replace('{previous_summary}', previousSummary)
-      .replace('{recent_transcript}', recentTranscripts || '(no recent speech)')
-      .replace('{recent_visual}', recentVisual || '(no recent screen changes)')
-
-    if (!shouldGenerateDocument) {
-      // Instruct LLM to skip the documentSummary generation to save tokens and time
-      prompt += `\n\nCRITICAL OVERRIDE: Skip generating the 'documentSummary' this time. Set "documentSummary": null. Focus ONLY on extracting statements, facts, questions, unclear_points, and followUpQuestions.`
-    } else {
-      // Full doc cycle — but still proportional
-      prompt += `\n\nThis is a FULL DOCUMENT GENERATION cycle. Write a thorough but proportional documentSummary covering all topics discussed so far. Use markdown headers, bullets, and tables where helpful. Include a Mermaid diagram ONLY if a process or architecture was discussed. The length should match the amount of actual content discussed — do NOT inflate.`
-    }
+  // =============================================
+  // CYCLE 1: Extract new items from recent transcript
+  // =============================================
+  private async runExtraction(): Promise<void> {
+    if (this.isExtracting) return
+    this.isExtracting = true
 
     try {
-      let result: SummaryState | null = null
+      const now = Date.now()
+      const windowMs = this.lastExtractionTime > 0 ? (now - this.lastExtractionTime) : 30_000
 
-      if (this.apiProvider === 'openai') {
-        result = await this.callOpenAI(prompt, shouldGenerateDocument)
-      } else {
-        result = await this.callGemini(prompt, shouldGenerateDocument)
-      }
+      const recentTranscripts = this.buffer
+        .filter(e => e.type === 'transcript' && e.timestamp > now - windowMs)
+        .map(e => e.content)
+        .join('\n')
+
+      const recentVisual = this.buffer
+        .filter(e => e.type === 'visual' && e.timestamp > now - windowMs)
+        .map(e => e.content)
+        .join('\n')
+
+      if (!recentTranscripts && !recentVisual) { this.isExtracting = false; return }
+
+      const prompt = EXTRACT_PROMPT
+        .replace('{target_language}', this.targetLanguage)
+        .replace('{recent_transcript}', recentTranscripts || '(none)')
+        .replace('{recent_visual}', recentVisual || '(none)')
+
+      const result = await this.callLLM(prompt, false)
 
       if (result) {
-        result.timestamp = now
-        // Clean up arrays if AI returns null/undefined
-        result.statements = result.statements || []
-        result.facts = result.facts || []
-        result.questions = result.questions || []
-        result.unclear_points = result.unclear_points || []
-        result.followUpQuestions = result.followUpQuestions || []
-
-        // If we skipped doc generation, manually stitch the previous doc summary back in
-        if (!shouldGenerateDocument && this.summaryState) {
-          result.documentSummary = this.summaryState.documentSummary
-        } else if (result.documentSummary) {
-          // LLM actually generated a new doc summary
-          this.lastDocumentSummaryTime = now
+        // Initialize state if needed
+        if (!this.summaryState) {
+          this.summaryState = {
+            timestamp: now,
+            documentSummary: '',
+            statements: [],
+            facts: [],
+            questions: [],
+            unclear_points: [],
+            followUpQuestions: []
+          }
         }
-        
-        this.summaryState = result
-        this.lastSummaryTime = now
-        this.lastProcessedEntryTime = newestEntryTime // Mark these entries as processed
-        this.emit('summary', result)
-        console.log(`[SummaryEngine] Summary emitted! Document Generated: ${shouldGenerateDocument}`)
+
+        // APPEND new items to existing state
+        if (result.statements?.length) this.summaryState.statements.push(...result.statements)
+        if (result.facts?.length) this.summaryState.facts.push(...result.facts)
+        if (result.questions?.length) this.summaryState.questions = result.questions // Replace — only recent
+        if (result.unclear_points?.length) this.summaryState.unclear_points = result.unclear_points // Replace — only recent
+
+        this.summaryState.timestamp = now
+        this.lastExtractionTime = now
+        this.lastExtractedEntryCount = this.buffer.filter(e => e.type === 'transcript').length
+        this.emit('summary', this.summaryState)
+        console.log(`[SummaryEngine] Extraction: +${result.statements?.length || 0}S +${result.facts?.length || 0}F +${result.questions?.length || 0}Q`)
       }
     } catch (err) {
-      console.error('[SummaryEngine] Failed to generate/parse summary:', err)
+      console.error('[SummaryEngine] Extraction failed:', err)
+    }
+    this.isExtracting = false
+  }
+
+  // =============================================
+  // CYCLE 2: Compress / deduplicate accumulated items
+  // =============================================
+  private async runCompression(): Promise<void> {
+    if (this.isCompressing || !this.summaryState) return
+    const totalItems = this.summaryState.statements.length + this.summaryState.facts.length
+    if (totalItems < 5) return // Not enough to compress
+
+    this.isCompressing = true
+
+    try {
+      const currentItems = JSON.stringify({
+        statements: this.summaryState.statements,
+        facts: this.summaryState.facts,
+        questions: this.summaryState.questions,
+        unclear_points: this.summaryState.unclear_points
+      }, null, 2)
+
+      const prompt = COMPRESS_PROMPT
+        .replace('{target_language}', this.targetLanguage)
+        .replace('{current_items}', currentItems)
+
+      const result = await this.callLLM(prompt, false)
+
+      if (result) {
+        const before = totalItems
+        this.summaryState.statements = result.statements || this.summaryState.statements
+        this.summaryState.facts = result.facts || this.summaryState.facts
+        if (result.unclear_points?.length) this.summaryState.unclear_points = result.unclear_points
+
+        const after = this.summaryState.statements.length + this.summaryState.facts.length
+        this.lastCompressionTime = Date.now()
+        this.emit('summary', this.summaryState)
+        console.log(`[SummaryEngine] Compression: ${before} → ${after} items`)
+      }
+    } catch (err) {
+      console.error('[SummaryEngine] Compression failed:', err)
+    }
+    this.isCompressing = false
+  }
+
+  // =============================================
+  // CYCLE 3: Generate document summary
+  // =============================================
+  private async runDocumentSummary(): Promise<void> {
+    if (this.isGeneratingDoc || !this.summaryState) return
+    const totalItems = this.summaryState.statements.length + this.summaryState.facts.length + this.summaryState.questions.length
+    if (totalItems === 0) return
+
+    this.isGeneratingDoc = true
+
+    try {
+      const now = Date.now()
+      const earliestEntry = this.buffer.length > 0 ? Math.min(...this.buffer.map(e => e.timestamp)) : now
+      const elapsedSec = Math.round((now - earliestEntry) / 1000)
+      const elapsedTime = `${Math.floor(elapsedSec / 60).toString().padStart(2, '0')}:${(elapsedSec % 60).toString().padStart(2, '0')}`
+
+      const prompt = DOCUMENT_PROMPT
+        .replace('{target_language}', this.targetLanguage)
+        .replace('{elapsed_time}', elapsedTime)
+        .replace('{statements}', JSON.stringify(this.summaryState.statements))
+        .replace('{facts}', JSON.stringify(this.summaryState.facts))
+        .replace('{questions}', JSON.stringify(this.summaryState.questions))
+        .replace('{unclear_points}', JSON.stringify(this.summaryState.unclear_points))
+        .replace('{previous_document}', this.summaryState.documentSummary || '(none)')
+
+      const result = await this.callLLM(prompt, true)
+
+      if (result) {
+        if (result.documentSummary) {
+          this.summaryState.documentSummary = result.documentSummary
+        }
+        if (result.followUpQuestions?.length) {
+          this.summaryState.followUpQuestions = result.followUpQuestions
+        }
+        this.summaryState.timestamp = now
+        this.lastDocumentTime = now
+        this.emit('summary', this.summaryState)
+        console.log(`[SummaryEngine] Document summary updated`)
+      }
+    } catch (err) {
+      console.error('[SummaryEngine] Document summary failed:', err)
+    }
+    this.isGeneratingDoc = false
+  }
+
+  // =============================================
+  // LLM call (shared by all cycles)
+  // =============================================
+  private async callLLM(prompt: string, isFullDocument: boolean): Promise<any> {
+    if (this.apiProvider === 'openai') {
+      return this.callOpenAI(prompt, isFullDocument)
+    } else {
+      return this.callGemini(prompt, isFullDocument)
     }
   }
 
-  private async callOpenAI(prompt: string, isFullDocument = false): Promise<SummaryState | null> {
+  private async callOpenAI(prompt: string, isFullDocument = false): Promise<any> {
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -271,12 +416,11 @@ export class SummaryEngine extends EventEmitter {
     }
     if (!content) return null
     
-    // Strip markdown codeblocks just in case the LLM didn't respect response_format strictly
     const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    return JSON.parse(cleanContent) as SummaryState
+    return JSON.parse(cleanContent)
   }
 
-  private async callGemini(prompt: string, isFullDocument = false): Promise<SummaryState | null> {
+  private async callGemini(prompt: string, isFullDocument = false): Promise<any> {
     const response = await fetch(
       `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${this.apiKey}`,
       {
@@ -305,9 +449,8 @@ export class SummaryEngine extends EventEmitter {
     }
     if (!content) return null
 
-    // Strip markdown codeblocks
     const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
-    return JSON.parse(cleanContent) as SummaryState
+    return JSON.parse(cleanContent)
   }
 
   getState(): SummaryState | null {
@@ -325,7 +468,9 @@ export class SummaryEngine extends EventEmitter {
   reset() {
     this.buffer = []
     this.summaryState = null
-    this.lastSummaryTime = 0
-    this.lastProcessedEntryTime = 0
+    this.lastExtractionTime = 0
+    this.lastExtractedEntryCount = 0
+    this.lastCompressionTime = 0
+    this.lastDocumentTime = 0
   }
 }
