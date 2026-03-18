@@ -158,9 +158,9 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
               >⋮</button>
               {menuSessionId === session.id && (
                 <div className="session-card__menu">
-                  <button onClick={(e) => handleExport('md', e)}>📄 Export MD</button>
-                  <button onClick={(e) => handleExport('json', e)}>📋 Export JSON</button>
-                  <button className="session-card__menu-delete" onClick={(e) => handleDelete(session.id, e)}>🗑️ Delete</button>
+                  <button onClick={(e) => handleExport('md', e)}>Export MD</button>
+                  <button onClick={(e) => handleExport('json', e)}>Export JSON</button>
+                  <button className="session-card__menu-delete" onClick={(e) => handleDelete(session.id, e)}>Delete</button>
                 </div>
               )}
             </div>

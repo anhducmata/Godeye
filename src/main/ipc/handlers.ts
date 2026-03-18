@@ -353,12 +353,6 @@ export function initializeHandlers(window: BrowserWindow) {
                 .then(fileId => { if (fileId && sid) updateSession(sid, { vector_store_file_id: fileId }) })
                 .catch(err => console.error('[IPC] Vector Store upload failed:', err))
             )
-
-            // Queue fine-tuning data
-            saveOps.push(
-              queueFinetuneData(sid, transcript, docContent)
-                .catch(err => console.error('[IPC] Fine-tune queue failed:', err))
-            )
           }
 
           // Wait for all saves
