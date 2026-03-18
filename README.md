@@ -1,6 +1,7 @@
 # MeetSense
 
 **Conversation Intelligence Platform** — AI-powered meeting transcription, summarization, and knowledge linking.
+![Uploading image.png…]()
 
 ## What it does
 
