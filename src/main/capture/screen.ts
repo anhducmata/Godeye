@@ -16,7 +16,9 @@ export interface CropRegion {
 
 export interface CaptureFrame {
   timestamp: number
-  dataUrl: string
+  dataUrl: string          // Small JPEG for renderer preview
+  fullResDataUrl: string   // Full-res JPEG data URL for OCR
+  s3Buffer: Buffer         // Full-res JPEG for S3 upload
   width: number
   height: number
 }
@@ -99,9 +101,15 @@ export class ScreenCapturer extends EventEmitter {
     }
 
     try {
+      // Use native display resolution for crisp capture
+      const primaryDisplay = screen.getPrimaryDisplay()
+      const scaleFactor = primaryDisplay.scaleFactor || 1
+      const nativeWidth = Math.round(primaryDisplay.bounds.width * scaleFactor)
+      const nativeHeight = Math.round(primaryDisplay.bounds.height * scaleFactor)
+
       const sources = await desktopCapturer.getSources({
         types: ['screen', 'window'],
-        thumbnailSize: { width: 800, height: 450 }  // downscaled for performance
+        thumbnailSize: { width: nativeWidth, height: nativeHeight }
       })
 
       const source = sources.find(s => s.id === this.sourceId)
@@ -119,8 +127,7 @@ export class ScreenCapturer extends EventEmitter {
       // Crop if region is set (scale crop coordinates to match thumbnail size)
       if (this.cropRegion) {
         const thumbSize = thumbnail.getSize()
-        // The display coords may be larger than the thumbnail — scale proportionally
-        const displayBounds = require('electron').screen.getPrimaryDisplay().bounds
+        const displayBounds = primaryDisplay.bounds
         const scaleX = thumbSize.width / displayBounds.width
         const scaleY = thumbSize.height / displayBounds.height
 
@@ -140,17 +147,26 @@ export class ScreenCapturer extends EventEmitter {
         }
       }
 
-      // Use JPEG for smaller IPC payload (~50KB instead of ~2MB)
-      const jpegBuffer = thumbnail.toJPEG(60)
-      const dataUrl = `data:image/jpeg;base64,${jpegBuffer.toString('base64')}`
+      // Full-res JPEG for S3 (90% quality — good for OCR, ~200-400KB vs 3-8MB PNG)
+      const fullResJpeg = thumbnail.toJPEG(90)
+
+      // Smaller JPEG preview for IPC (fast, ~50-100KB)
+      const previewSize = thumbnail.resize({ width: 960 })
+      const previewJpeg = previewSize.toJPEG(80)
+      const dataUrl = `data:image/jpeg;base64,${previewJpeg.toString('base64')}`
+
+      // Full-res data URL for OCR (generated on-demand in handler)
+      const fullResDataUrl = `data:image/jpeg;base64,${fullResJpeg.toString('base64')}`
 
       if (logThis) {
-        console.log(`[ScreenCapturer] Frame #${this.frameCounter}: ${thumbnail.getSize().width}×${thumbnail.getSize().height}, ${Math.round(dataUrl.length / 1024)}KB`)
+        console.log(`[ScreenCapturer] Frame #${this.frameCounter}: ${thumbnail.getSize().width}×${thumbnail.getSize().height}, S3=${Math.round(fullResJpeg.length / 1024)}KB, preview=${Math.round(previewJpeg.length / 1024)}KB`)
       }
 
       const frame: CaptureFrame = {
         timestamp: Date.now(),
         dataUrl,
+        fullResDataUrl,
+        s3Buffer: fullResJpeg,
         width: thumbnail.getSize().width,
         height: thumbnail.getSize().height
       }
@@ -163,22 +179,41 @@ export class ScreenCapturer extends EventEmitter {
 
   /**
    * Opens a fullscreen overlay window for the user to draw a crop rectangle.
-   * Uses a temp HTML file + IPC (more reliable on Windows than data: URLs + transparent windows).
+   * Captures a screenshot first, then displays it as a dimmed background
+   * so the user can see the desktop while selecting an area.
    */
   async selectArea(parentWindow: BrowserWindow): Promise<CropRegion | null> {
     const { writeFileSync, unlinkSync } = await import('fs')
     const { join } = await import('path')
-    const { app } = await import('electron')
+    const { app, desktopCapturer: dc } = await import('electron')
+
+    // 1. Capture a screenshot of the primary display BEFORE opening the overlay
+    const display = screen.getDisplayNearestPoint(
+      screen.getCursorScreenPoint()
+    )
+    const { x, y, width, height } = display.bounds
+    const scaleFactor = display.scaleFactor || 1
+
+    console.log(`[ScreenCapturer] selectArea: display bounds ${width}×${height} at (${x},${y}), scale=${scaleFactor}`)
+
+    let screenshotDataUrl = ''
+    try {
+      const sources = await dc.getSources({
+        types: ['screen'],
+        thumbnailSize: { width: Math.round(width * scaleFactor), height: Math.round(height * scaleFactor) }
+      })
+      // Find the source matching this display
+      const displaySource = sources.find(s => s.display_id === String(display.id)) || sources[0]
+      if (displaySource && !displaySource.thumbnail.isEmpty()) {
+        screenshotDataUrl = displaySource.thumbnail.toDataURL()
+        console.log(`[ScreenCapturer] Screenshot captured: ${displaySource.name}`)
+      }
+    } catch (err) {
+      console.warn('[ScreenCapturer] Failed to capture screenshot for overlay:', err)
+    }
 
     return new Promise((resolve) => {
-      const display = screen.getDisplayNearestPoint(
-        screen.getCursorScreenPoint()
-      )
-      const { x, y, width, height } = display.bounds
-
-      console.log(`[ScreenCapturer] selectArea: display bounds ${width}×${height} at (${x},${y})`)
-
-      // Write HTML to a temp file (data: URLs can be blocked on Windows)
+      // Write HTML overlay with the screenshot as background
       const htmlContent = `<!DOCTYPE html>
 <html>
 <head>
@@ -187,27 +222,48 @@ export class ScreenCapturer extends EventEmitter {
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body {
       width: 100vw; height: 100vh;
-      background: rgba(10, 10, 20, 0.75);
       cursor: crosshair;
       overflow: hidden;
       user-select: none;
+      position: relative;
+    }
+    #bg-screenshot {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      object-fit: cover;
+      z-index: 0;
+    }
+    #dimmer {
+      position: absolute;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.35);
+      z-index: 1;
     }
     #selection {
       position: absolute;
       border: 2px solid #38bdf8;
-      background: rgba(56, 189, 248, 0.1);
-      box-shadow: 0 0 0 9999px rgba(0,0,0,0.5);
+      background: transparent;
       display: none;
       z-index: 10;
+    }
+    /* Clear area inside selection by clipping the dimmer */
+    #selection::before {
+      content: '';
+      position: absolute;
+      inset: -2px;
+      border: 2px solid #38bdf8;
+      box-shadow: 0 0 0 9999px rgba(0, 0, 0, 0.45);
     }
     #size-label {
       position: absolute;
       background: rgba(0,0,0,0.85);
       color: #38bdf8;
-      padding: 2px 8px;
+      padding: 3px 10px;
       border-radius: 4px;
       font-family: monospace;
-      font-size: 12px;
+      font-size: 13px;
       pointer-events: none;
       display: none;
       z-index: 20;
@@ -217,7 +273,7 @@ export class ScreenCapturer extends EventEmitter {
       top: 20px;
       left: 50%;
       transform: translateX(-50%);
-      background: rgba(0,0,0,0.9);
+      background: rgba(0,0,0,0.85);
       color: #e8e8f0;
       padding: 10px 24px;
       border-radius: 10px;
@@ -226,10 +282,13 @@ export class ScreenCapturer extends EventEmitter {
       pointer-events: none;
       z-index: 100;
       border: 1px solid rgba(56, 189, 248, 0.3);
+      backdrop-filter: blur(8px);
     }
   </style>
 </head>
 <body>
+  ${screenshotDataUrl ? `<img id="bg-screenshot" src="${screenshotDataUrl}" />` : ''}
+  <div id="dimmer"></div>
   <div id="info">Click and drag to select an area · Press ESC to cancel</div>
   <div id="selection"></div>
   <div id="size-label"></div>
@@ -303,7 +362,7 @@ export class ScreenCapturer extends EventEmitter {
         alwaysOnTop: true,
         skipTaskbar: true,
         resizable: false,
-        backgroundColor: '#0a0a14',
+        backgroundColor: '#000000',
         webPreferences: {
           contextIsolation: true,
           nodeIntegration: false

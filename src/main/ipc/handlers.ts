@@ -9,14 +9,14 @@ import fs from 'fs'
 import crypto from 'crypto'
 import path from 'path'
 import os from 'os'
-import { processPostMeeting } from '../pipeline/post-meeting'
+// Post-meeting processing removed — data is saved live to DB during recording
 import { createSession, updateSession, listSessions, getSession, deleteSession, saveTranscripts, saveSummary, getSessionTranscripts, getSessionSummary, listSessionsWithTags } from '../db/sessions'
 import { createTag, listTags, deleteTag, tagSession, untagSession, getSessionTags } from '../db/tags'
 import { createSpeakerProfile, listSpeakerProfiles, updateSpeakerProfile, assignSpeakerToSession, getSessionSpeakers } from '../db/speakers'
-import { uploadSessionAudio, uploadSessionTranscript, uploadSessionSummary } from '../storage/s3-client'
+import { uploadSessionAudio, uploadSessionTranscript, uploadSessionSummary, uploadSessionFrame } from '../storage/s3-client'
 import { uploadSessionToVectorStore } from '../rag/vector-store'
 import { queueFinetuneData } from '../finetune/trainer'
-import { addUserTokens } from '../db/auth'
+import { addUserTokens, updateUserLanguage } from '../db/auth'
 import { registerUser, loginUser } from '../db/auth'
 
 /**
@@ -40,7 +40,10 @@ let screenCaptureEnabled = false
 let webmStream: fs.WriteStream | null = null
 export let sessionAudioPath: string | null = null
 let webmBytesWritten = 0
+let liveSummaryTimer: ReturnType<typeof setTimeout> | null = null
+let lastSavedTranscriptCount = 0
 let currentSessionId: string | null = null
+let frameUploadCount = 0
 
 /** Safe IPC send — ignores errors when the renderer frame is momentarily unavailable */
 function safeSend(channel: string, data?: any) {
@@ -91,9 +94,27 @@ export function initializeHandlers(window: BrowserWindow) {
     return screenCapturer.selectArea(mainWindow)
   })
 
+  // Module-level AI model setting
+  let selectedModel = 'gpt-4o-mini'
+
   // --- Settings ---
-  ipcMain.handle('set-api-key', async (_event, config: { apiKey: string; provider: 'openai' | 'gemini'; language?: string }) => {
+  ipcMain.handle('set-api-key', async (_event, config: { apiKey: string; provider: 'openai' | 'gemini'; language?: string; model?: string }) => {
     summaryEngine.configure(config)
+    if (config.model) {
+      selectedModel = config.model
+    }
+    if (config.language) {
+      whisperTranscriber.setLanguage(config.language)
+      // Persist language to DB on user account
+      try {
+        const store = (await import('electron-store')).default
+        const settings = new store()
+        const userData = settings.get('user') as any
+        if (userData?.id) {
+          await updateUserLanguage(userData.id, config.language)
+        }
+      } catch {}
+    }
     return { success: true }
   })
 
@@ -114,8 +135,10 @@ export function initializeHandlers(window: BrowserWindow) {
     }))
 
     sessionStartTime = Date.now()
+    frameUploadCount = 0
     transcriptEntries = []
     visualNotes = []
+    summaryEngine.reset()
     screenCaptureEnabled = config.enableScreenCapture === true && !!config.sourceId
 
     // Initialize WebM file stream
@@ -141,11 +164,22 @@ export function initializeHandlers(window: BrowserWindow) {
       }
 
       screenCapturer.on('frame', async (frame: CaptureFrame) => {
-        safeSend('capture-frame', frame)
+        // Send to renderer (without the large buffers)
+        const { s3Buffer, fullResDataUrl, ...rendererFrame } = frame
+        safeSend('capture-frame', rendererFrame)
 
-        // Run OCR on frame
+        // Upload to S3 only every 5th frame (cost optimization)
+        frameUploadCount++
+        if (currentSessionId && s3Buffer && frameUploadCount % 5 === 0) {
+          const idx = frameUploadCount
+          uploadSessionFrame(currentSessionId, idx, s3Buffer)
+            .then(key => { if (idx <= 15 || idx % 50 === 0) console.log(`[IPC] Frame #${idx} uploaded: ${key}`) })
+            .catch(err => console.error(`[IPC] Frame #${idx} S3 upload failed:`, err))
+        }
+
+        // Run OCR on full-res frame
         try {
-          const ocrResult = await ocrPipeline.processFrame(frame.dataUrl, frame.timestamp)
+          const ocrResult = await ocrPipeline.processFrame(fullResDataUrl, frame.timestamp)
           if (ocrResult) {
             const note = {
               id: ocrResult.id,
@@ -200,6 +234,18 @@ export function initializeHandlers(window: BrowserWindow) {
         transcriptEntries.push(entry)
         safeSend('transcript', entry)
         summaryEngine.addEntry({ timestamp: Date.now(), type: 'transcript', content: result.text })
+
+        // Live save transcript to DB
+        if (currentSessionId) {
+          saveTranscripts(currentSessionId, [{
+            timestamp: entry.timestamp,
+            text: entry.text,
+            source: entry.source,
+            speaker: null,
+            start_sec: entry.start || 0,
+            end_sec: entry.end || 0
+          }]).catch(err => console.error('[IPC] Live transcript save failed:', err))
+        }
       })
       whisperTranscriber.start()
       console.log('[IPC] WhisperTranscriber started (OpenAI API)')
@@ -207,9 +253,28 @@ export function initializeHandlers(window: BrowserWindow) {
       console.log('[IPC] No OPENAI_API_KEY — Whisper API transcription disabled')
     }
 
-    // --- Summary engine → renderer ---
+    // --- Summary engine → renderer + live DB save ---
     summaryEngine.on('summary', (state: SummaryState) => {
       safeSend('summary', state)
+
+      // Debounced live save summary to DB (every 10s max)
+      if (currentSessionId && !liveSummaryTimer) {
+        liveSummaryTimer = setTimeout(() => {
+          liveSummaryTimer = null
+          const sid = currentSessionId
+          if (!sid) return
+          const s = summaryEngine.getState()
+          if (!s) return
+          saveSummary(sid, {
+            document_summary: s.documentSummary || '',
+            statements: s.statements || [],
+            facts: s.facts || [],
+            questions: s.questions || [],
+            unclear_points: s.unclear_points || [],
+            follow_ups: []
+          }).catch(err => console.error('[IPC] Live summary save failed:', err))
+        }, 10_000)
+      }
     })
     summaryEngine.on('tokens', (total: number) => {
       safeSend('tokens', total)
@@ -261,149 +326,107 @@ export function initializeHandlers(window: BrowserWindow) {
     // Tell renderer to stop audio capture
     safeSend('stop-audio-capture')
 
-    // Finalize WebM and begin post-processing
+    // Clear any pending live summary timer
+    if (liveSummaryTimer) { clearTimeout(liveSummaryTimer); liveSummaryTimer = null }
+
+    // Finalize WebM
     if (webmStream) {
       webmStream.end()
       webmStream = null
       console.log('[IPC] WebM recording finalized at:', sessionAudioPath)
-      
-      const apiKey = process.env.OPENAI_API_KEY || ''
-      const durationSec = Math.floor((Date.now() - sessionStartTime) / 1000)
+    }
 
-      // Skip post-processing for recordings shorter than 30 seconds
-      if (durationSec < 30) {
-        console.log(`[IPC] Recording too short (${durationSec}s < 30s) — skipping save and summary`)
-        if (currentSessionId) {
-          await deleteSession(currentSessionId).catch(() => {})
-        }
-        safeSend('post-meeting-status', { processing: false })
-      } else if (apiKey && sessionAudioPath) {
-        // Notify renderer that post-meeting processing is starting
-        safeSend('post-meeting-status', { processing: true })
+    const apiKey = process.env.OPENAI_API_KEY || ''
+    const durationSec = Math.floor((Date.now() - sessionStartTime) / 1000)
+    const sid = currentSessionId
 
-        const audioPath = sessionAudioPath
-        const sid = currentSessionId
+    // Skip for recordings shorter than 30 seconds
+    if (durationSec < 30) {
+      console.log(`[IPC] Recording too short (${durationSec}s < 30s) — deleting session`)
+      if (sid) await deleteSession(sid).catch(() => {})
+      safeSend('post-meeting-status', { processing: false })
+    } else if (sid) {
+      safeSend('post-meeting-status', { processing: true })
 
-          // Read audio buffer BEFORE post-meeting processing deletes the temp file
-          let audioBuffer: Buffer | null = null
-          try {
-            audioBuffer = fs.readFileSync(audioPath)
-          } catch (err) {
-            console.warn('[IPC] Could not pre-read audio for S3:', err)
-          }
-
-        // Run in background — parallel DB+S3+diarize
-        processPostMeeting(audioPath, apiKey, summaryEngine).then(async (finalSummary) => {
-          if (finalSummary) {
-            safeSend('summary', finalSummary)
-            console.log('[IPC] Final summary sent to renderer')
-          }
-
-          // Parallel Phase 2: DB save + S3 upload + Vector Store + Fine-tune
+      // Background finalization: final DB save + S3 + vector store + title
+      ;(async () => {
+        try {
           const saveOps: Promise<any>[] = []
 
-          // Save transcripts to DB
-          if (sid && transcriptEntries.length > 0) {
+          // Final summary save (ensures latest state is persisted)
+          const summaryState = summaryEngine.getState()
+          if (summaryState) {
             saveOps.push(
-              saveTranscripts(sid, transcriptEntries.map(t => ({
-                timestamp: t.timestamp,
-                text: t.text,
-                source: t.source,
-                speaker: t.speaker || null,
-                start_sec: t.start || 0,
-                end_sec: t.end || 0
-              }))).catch(err => console.error('[IPC] Save transcripts failed:', err))
+              saveSummary(sid, {
+                document_summary: summaryState.documentSummary || '',
+                statements: summaryState.statements || [],
+                facts: summaryState.facts || [],
+                questions: summaryState.questions || [],
+                unclear_points: summaryState.unclear_points || [],
+                follow_ups: []
+              }).catch(err => console.error('[IPC] Final summary save failed:', err))
+            )
+
+            // Update session metadata
+            saveOps.push(
+              updateSession(sid, {
+                duration_seconds: durationSec,
+                document_type: summaryState.documentType || 'general',
+                status: 'completed'
+              }).catch(err => console.error('[IPC] Update session failed:', err))
             )
           }
 
-          // Save summary to DB
-          if (sid && finalSummary) {
-            const summaryState = summaryEngine.getState()
-            if (summaryState) {
-              saveOps.push(
-                saveSummary(sid, {
-                  document_summary: summaryState.documentSummary || '',
-                  statements: summaryState.statements || [],
-                  facts: summaryState.facts || [],
-                  questions: summaryState.questions || [],
-                  unclear_points: summaryState.unclear_points || [],
-                  follow_ups: []
-                }).catch(err => console.error('[IPC] Save summary failed:', err))
-              )
-
-              // Update session metadata
-              saveOps.push(
-                updateSession(sid, {
-                  duration_seconds: Math.floor((Date.now() - sessionStartTime) / 1000),
-                  document_type: summaryState.documentType || 'general',
-                  status: 'completed'
-                }).catch(err => console.error('[IPC] Update session failed:', err))
-              )
-            }
-          }
-
-          // Upload audio to S3 (using pre-read buffer)
-          if (audioBuffer && audioBuffer.length > 0 && sid) {
-            saveOps.push(
-              uploadSessionAudio(sid, audioBuffer)
-                .then(key => { if (sid) updateSession(sid, { s3_audio_key: key }) })
-                .catch(err => console.error('[IPC] S3 upload failed:', err))
-            )
+          // Delete temp audio file
+          if (sessionAudioPath) {
+            try { if (fs.existsSync(sessionAudioPath)) fs.unlinkSync(sessionAudioPath) } catch {}
           }
 
           // Upload to Vector Store for RAG
-          if (sid && finalSummary) {
-            const state = summaryEngine.getState()
-            const docContent = state?.documentSummary || ''
+          if (summaryState) {
+            const docContent = summaryState.documentSummary || ''
             const transcript = transcriptEntries.map(t => t.text).join('\n')
             saveOps.push(
               uploadSessionToVectorStore(sid, `# Session Summary\n\n${docContent}\n\n# Transcript\n\n${transcript}`)
-                .then(fileId => { if (fileId && sid) updateSession(sid, { vector_store_file_id: fileId }) })
+                .then(fileId => { if (fileId) updateSession(sid, { vector_store_file_id: fileId }) })
                 .catch(err => console.error('[IPC] Vector Store upload failed:', err))
             )
           }
 
-          // Wait for all saves
           await Promise.allSettled(saveOps)
           console.log('[IPC] All post-meeting saves completed')
 
-          // Auto-generate title and tags from the summary
-          if (sid && finalSummary) {
+          // Auto-generate title
+          if (apiKey && summaryState) {
             try {
               const OpenAI = (await import('openai')).default
               const openai = new OpenAI({ apiKey })
-              const docContent = summaryEngine.getState()?.documentSummary || ''
-              const statementsText = (summaryEngine.getState()?.statements || []).join('. ')
+              const docContent = summaryState.documentSummary || ''
+              const statementsText = (summaryState.statements || []).join('. ')
               const contextText = (docContent + '\n' + statementsText).slice(0, 2000)
 
-              const titleTagResult = await openai.chat.completions.create({
+              const titleResult = await openai.chat.completions.create({
                 model: 'gpt-5.4-nano',
                 temperature: 0.3,
-                max_tokens: 100,
+                max_completion_tokens: 100,
                 messages: [{
                   role: 'user',
-                  content: `Based on this meeting summary, generate a concise title (3-6 words) describing the main topic.
-
-Summary:
-${contextText}
-
-Respond in this exact JSON format:
-{"title": "..."}`
+                  content: `Based on this meeting summary, generate a concise title (3-6 words) describing the main topic.\n\nSummary:\n${contextText}\n\nRespond in this exact JSON format:\n{"title": "..."}`
                 }],
                 response_format: { type: 'json_object' }
               })
 
-              const parsed = JSON.parse(titleTagResult.choices[0]?.message?.content || '{}')
+              const parsed = JSON.parse(titleResult.choices[0]?.message?.content || '{}')
               if (parsed.title) {
                 await updateSession(sid, { title: parsed.title } as any)
                 console.log(`[IPC] Auto-title set: "${parsed.title}"`)
               }
             } catch (err) {
-              console.error('[IPC] Auto title/tag generation failed:', err)
+              console.error('[IPC] Auto title generation failed:', err)
             }
           }
 
-          // Save lifetime token usage to user's account
+          // Save lifetime token usage
           try {
             const tokenUsage = summaryEngine.getTokenUsage()
             const store = (await import('electron-store')).default
@@ -418,11 +441,11 @@ Respond in this exact JSON format:
           }
 
           safeSend('post-meeting-status', { processing: false })
-        }).catch(err => {
-          console.error('[IPC] Post-meeting error:', err)
+        } catch (err) {
+          console.error('[IPC] Post-meeting finalization error:', err)
           safeSend('post-meeting-status', { processing: false })
-        })
-      }
+        }
+      })()
     }
 
     console.log('[IPC] ✅ Capture session stopped')
@@ -592,6 +615,400 @@ Respond in this exact JSON format:
     } catch (err) {
       console.error('[Search] Failed:', err)
       return []
+    }
+  })
+
+  // --- Chat with session (context-aware chat bubble) ---
+  ipcMain.handle('chat-with-session', async (_event, data: { sessionId: string; query: string; history?: { role: string; content: string }[]; language?: string }) => {
+    const { sessionId, query, history, language } = data
+    if (!sessionId || !query?.trim()) return { success: false, error: 'Missing sessionId or query' }
+
+    const apiKey = process.env.OPENAI_API_KEY || ''
+    if (!apiKey) return { success: false, error: 'No OPENAI_API_KEY configured' }
+
+    try {
+      // Load session data from DB
+      const transcripts = await getSessionTranscripts(sessionId)
+      const summary = await getSessionSummary(sessionId)
+      const session = await getSession(sessionId)
+
+      // Build context from session data
+      const sessionTitle = session?.title || 'Untitled Session'
+      const transcriptText = (transcripts || []).map((t: any) => t.text).join('\n')
+      const summaryDoc = summary?.document_summary || ''
+      const statements = (summary?.statements || []).map((s: any) => typeof s === 'string' ? s : s.text).join('\n')
+      const facts = (summary?.facts || []).map((f: any) => typeof f === 'string' ? f : f.text).join('\n')
+      const questions = (summary?.questions || []).map((q: any) => typeof q === 'string' ? q : q.text).join('\n')
+
+      const contextBlock = [
+        `# Session: ${sessionTitle}`,
+        summaryDoc ? `\n## Summary\n${summaryDoc}` : '',
+        statements ? `\n## Key Statements\n${statements}` : '',
+        facts ? `\n## Facts\n${facts}` : '',
+        questions ? `\n## Questions Discussed\n${questions}` : '',
+        transcriptText ? `\n## Transcript\n${transcriptText.slice(0, 6000)}` : ''
+      ].filter(Boolean).join('\n')
+
+      const targetLang = language || 'English'
+
+      const messages: any[] = [
+        {
+          role: 'system',
+          content: `You are a helpful AI assistant for a meeting/session note-taking app called MeetSense. The user is asking about a specific session. Answer based ONLY on the session data provided below. If the answer is not in the data, say so honestly. Respond in ${targetLang}. Keep responses concise and helpful.\n\n--- SESSION DATA ---\n${contextBlock.slice(0, 10000)}\n--- END SESSION DATA ---`
+        }
+      ]
+
+      // Add chat history for multi-turn conversation
+      if (history?.length) {
+        for (const msg of history.slice(-6)) {
+          messages.push({ role: msg.role, content: msg.content })
+        }
+      }
+
+      messages.push({ role: 'user', content: query })
+
+      const OpenAI = (await import('openai')).default
+      const openai = new OpenAI({ apiKey })
+
+      const result = await openai.chat.completions.create({
+        model: selectedModel,
+        temperature: 0.4,
+        max_completion_tokens: 1500,
+        messages
+      })
+
+      const answer = result.choices[0]?.message?.content?.trim() || 'No response generated.'
+
+      // Track token usage
+      if (result.usage) {
+        try {
+          const store = (await import('electron-store')).default
+          const settings = new store()
+          const userData = settings.get('user') as any
+          if (userData?.id) {
+            const inTok = result.usage.prompt_tokens || 0
+            const outTok = result.usage.completion_tokens || 0
+            const cost = (inTok / 1_000_000) * 0.15 + (outTok / 1_000_000) * 0.60
+            await addUserTokens(userData.id, inTok, outTok, cost)
+          }
+        } catch {}
+      }
+
+      return { success: true, answer }
+    } catch (err: any) {
+      console.error('[ChatWithSession] Failed:', err)
+      return { success: false, error: err.message || 'Chat failed' }
+    }
+  })
+
+  // --- Paste Memory handler ---
+  ipcMain.handle('analyze-paste-memory', async (_event, data: { text: string; language?: string }) => {
+    const { text, language } = data
+    if (!text || !text.trim()) return { success: false, error: 'No text provided' }
+
+    const apiKey = process.env.OPENAI_API_KEY || ''
+    if (!apiKey) return { success: false, error: 'No OPENAI_API_KEY configured' }
+
+    const targetLang = language || 'English'
+
+    try {
+      // 1. Create session in DB
+      const sessionId = await createSession()
+      console.log(`[PasteMemory] Session created: ${sessionId}`)
+
+      // 2. Save the pasted text as a transcript entry
+      await saveTranscripts(sessionId, [{
+        timestamp: Date.now(),
+        text: text.trim(),
+        source: 'paste',
+        speaker: null,
+        start_sec: 0,
+        end_sec: 0
+      }])
+
+      // 3. Call OpenAI to analyze the pasted text
+      const OpenAI = (await import('openai')).default
+      const openai = new OpenAI({ apiKey })
+
+      const analyzeResult = await openai.chat.completions.create({
+        model: 'gpt-5.4-mini',
+        temperature: 0.3,
+        max_completion_tokens: 2000,
+        response_format: { type: 'json_object' },
+        messages: [
+          { role: 'system', content: 'You are a text analysis assistant. Always respond with valid JSON.' },
+          {
+            role: 'user',
+            content: `Analyze the following text and extract structured information.
+IMPORTANT: Write your entire response in: ${targetLang}
+
+TEXT TO ANALYZE:
+${text.trim().slice(0, 8000)}
+
+Extract and classify each meaningful item:
+- statements: ideas, opinions, suggestions, proposals, key points
+- facts: confirmed information, data, decisions, conclusions, numbers
+- questions: anything asked or that remains unanswered
+- unclear_points: unresolved issues (with sub-type: question, risk, dependency, decision)
+- documentSummary: a comprehensive markdown summary of the entire text with # Headers and - Bullets
+
+Output JSON:
+{
+  "statements": ["statement 1", "statement 2"],
+  "facts": ["fact 1", "fact 2"],
+  "questions": ["question 1"],
+  "unclear_points": [{ "type": "risk", "text": "issue" }],
+  "documentSummary": "# Title\\n\\n- summary point 1\\n- summary point 2"
+}
+
+Rules:
+- Extract ALL meaningful items from the text
+- Keep each item SHORT (max 1-2 sentences)
+- documentSummary should be detailed and well-structured
+- ALWAYS respond with valid JSON only.`
+          }
+        ]
+      })
+
+      const content = analyzeResult.choices[0]?.message?.content
+      if (!content) {
+        return { success: false, error: 'No response from AI' }
+      }
+
+      const cleanContent = content.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim()
+      const analysis = JSON.parse(cleanContent)
+
+      // 4. Save analysis as summary
+      await saveSummary(sessionId, {
+        document_summary: analysis.documentSummary || '',
+        statements: analysis.statements || [],
+        facts: analysis.facts || [],
+        questions: analysis.questions || [],
+        unclear_points: analysis.unclear_points || [],
+        follow_ups: []
+      })
+
+      // 5. Track token usage
+      if (analyzeResult.usage) {
+        try {
+          const store = (await import('electron-store')).default
+          const settings = new store()
+          const userData = settings.get('user') as any
+          if (userData?.id) {
+            const inTok = analyzeResult.usage.prompt_tokens || 0
+            const outTok = analyzeResult.usage.completion_tokens || 0
+            const cost = (inTok / 1_000_000) * 0.15 + (outTok / 1_000_000) * 0.60
+            await addUserTokens(userData.id, inTok, outTok, cost)
+          }
+        } catch {}
+      }
+
+      // 6. Auto-generate title
+      try {
+        const titleResult = await openai.chat.completions.create({
+          model: 'gpt-5.4-nano',
+          temperature: 0.3,
+          max_completion_tokens: 100,
+          response_format: { type: 'json_object' },
+          messages: [{
+            role: 'user',
+            content: `Based on this text analysis, generate a concise title (3-6 words) describing the main topic.\n\nSummary:\n${(analysis.documentSummary || '').slice(0, 1000)}\n\nRespond in this exact JSON format:\n{"title": "..."}`
+          }]
+        })
+        const parsed = JSON.parse(titleResult.choices[0]?.message?.content || '{}')
+        if (parsed.title) {
+          await updateSession(sessionId, { title: parsed.title, status: 'completed' } as any)
+          console.log(`[PasteMemory] Title: "${parsed.title}"`)
+        }
+      } catch (err) {
+        console.error('[PasteMemory] Title generation failed:', err)
+        await updateSession(sessionId, { status: 'completed' } as any)
+      }
+
+      // 7. Upload to vector store for RAG
+      try {
+        const docContent = analysis.documentSummary || ''
+        const fileId = await uploadSessionToVectorStore(sessionId, `# Paste Memory\n\n${docContent}\n\n# Original Text\n\n${text.trim().slice(0, 4000)}`)
+        if (fileId) await updateSession(sessionId, { vector_store_file_id: fileId } as any)
+      } catch (err) {
+        console.error('[PasteMemory] Vector store upload failed:', err)
+      }
+
+      console.log(`[PasteMemory] ✅ Analysis complete for session ${sessionId}`)
+      return { success: true, sessionId, analysis }
+    } catch (err: any) {
+      console.error('[PasteMemory] Analysis failed:', err)
+      return { success: false, error: err.message || 'Analysis failed' }
+    }
+  })
+  // --- Translate for TTS handler ---
+  ipcMain.handle('translate-for-tts', async (_event, data: { text: string; language?: string }) => {
+    const { text, language } = data
+    if (!text?.trim()) return { success: false, error: 'No text' }
+    if (!language || language === 'en') return { success: true, translated: text }
+
+    const apiKey = process.env.OPENAI_API_KEY || ''
+    if (!apiKey) return { success: true, translated: text }
+
+    try {
+      const OpenAI = (await import('openai')).default
+      const openai = new OpenAI({ apiKey })
+
+      const result = await openai.chat.completions.create({
+        model: selectedModel,
+        temperature: 0.3,
+        max_completion_tokens: 2000,
+        messages: [{
+          role: 'user',
+          content: `Translate the following summary to ${language}. Keep the same structure and meaning. Output ONLY the translated text, nothing else.\n\n${text.slice(0, 3000)}`
+        }]
+      })
+
+      const translated = result.choices[0]?.message?.content?.trim() || text
+
+      if (result.usage) {
+        try {
+          const store = (await import('electron-store')).default
+          const settings = new store()
+          const userData = settings.get('user') as any
+          if (userData?.id) {
+            const inTok = result.usage.prompt_tokens || 0
+            const outTok = result.usage.completion_tokens || 0
+            const cost = (inTok / 1_000_000) * 0.15 + (outTok / 1_000_000) * 0.60
+            await addUserTokens(userData.id, inTok, outTok, cost)
+          }
+        } catch {}
+      }
+
+      return { success: true, translated }
+    } catch (err: any) {
+      console.error('[TranslateForTTS] Failed:', err)
+      return { success: true, translated: text }
+    }
+  })
+
+  // --- Custom Summarize handler ---
+  ipcMain.handle('custom-summarize', async (_event, data: { sessionId: string; items: string[]; prompt: string; language?: string }) => {
+    const { sessionId, items, prompt, language } = data
+    if (!items?.length) return { success: false, error: 'No items' }
+
+    const apiKey = process.env.OPENAI_API_KEY || ''
+    if (!apiKey) return { success: false, error: 'No OPENAI_API_KEY' }
+
+    try {
+      const OpenAI = (await import('openai')).default
+      const openai = new OpenAI({ apiKey })
+
+      const result = await openai.chat.completions.create({
+        model: selectedModel,
+        temperature: 0.3,
+        max_completion_tokens: 4000,
+        messages: [{
+          role: 'system',
+          content: `You are a meeting analyst. You must respond ONLY with valid JSON matching this exact structure:
+{
+  "document_summary": "A comprehensive document summary",
+  "statements": [{"text": "statement 1"}, {"text": "statement 2"}],
+  "facts": [{"text": "fact 1"}, {"text": "fact 2"}],
+  "questions": ["question 1", "question 2"],
+  "unclear_points": [{"text": "unclear point", "type": "question"}]
+}
+Respond in ${language || 'English'}. Follow the user's request precisely.`
+        }, {
+          role: 'user',
+          content: `Here are the items from a meeting session:\n\n${items.map((item, i) => `${i + 1}. ${item}`).join('\n')}\n\nUser request: ${prompt}`
+        }]
+      })
+
+      let content = result.choices[0]?.message?.content?.trim() || ''
+      // Strip markdown code fences if present
+      content = content.replace(/^```json\s*/i, '').replace(/```\s*$/i, '').trim()
+
+      let parsed: any
+      try {
+        parsed = JSON.parse(content)
+      } catch {
+        return { success: true, summary: { document_summary: content, statements: [], facts: [], questions: [], unclear_points: [], follow_ups: [] } }
+      }
+
+      const summaryData = {
+        document_summary: parsed.document_summary || content,
+        statements: parsed.statements || [],
+        facts: parsed.facts || [],
+        questions: parsed.questions || [],
+        unclear_points: parsed.unclear_points || [],
+        follow_ups: parsed.follow_ups || []
+      }
+
+      // Save to database
+      if (sessionId) {
+        try {
+          await saveSummary(sessionId, summaryData)
+          console.log(`[CustomSummarize] Saved to DB for session ${sessionId}`)
+        } catch (err) {
+          console.error('[CustomSummarize] DB save failed:', err)
+        }
+      }
+
+      if (result.usage) {
+        try {
+          const store = (await import('electron-store')).default
+          const settings = new store()
+          const userData = settings.get('user') as any
+          if (userData?.id) {
+            const inTok = result.usage.prompt_tokens || 0
+            const outTok = result.usage.completion_tokens || 0
+            const cost = (inTok / 1_000_000) * 0.15 + (outTok / 1_000_000) * 0.60
+            await addUserTokens(userData.id, inTok, outTok, cost)
+          }
+        } catch {}
+      }
+
+      return { success: true, summary: summaryData }
+    } catch (err: any) {
+      console.error('[CustomSummarize] Failed:', err)
+      return { success: false, error: err.message }
+    }
+  })
+
+  // --- TTS Read handler (single chunk) ---
+  ipcMain.handle('tts-read', async (_event, data: { text: string }) => {
+    const { text } = data
+    if (!text || !text.trim()) return { success: false, error: 'No text' }
+
+    const apiKey = process.env.OPENAI_API_KEY || ''
+    if (!apiKey) return { success: false, error: 'No OPENAI_API_KEY configured' }
+
+    try {
+      const OpenAI = (await import('openai')).default
+      const openai = new OpenAI({ apiKey })
+
+      const response = await openai.audio.speech.create({
+        model: 'tts-1',
+        voice: 'nova',
+        input: text.slice(0, 1000),
+        response_format: 'mp3',
+        speed: 1.0,
+      })
+
+      const arrayBuffer = await response.arrayBuffer()
+      const audio = Buffer.from(arrayBuffer).toString('base64')
+
+      // Track cost: TTS-1 = $15/1M chars
+      try {
+        const store = (await import('electron-store')).default
+        const settings = new store()
+        const userData = settings.get('user') as any
+        if (userData?.id) {
+          const cost = (text.length / 1_000_000) * 15
+          await addUserTokens(userData.id, 0, 0, cost)
+        }
+      } catch {}
+
+      return { success: true, audio }
+    } catch (err: any) {
+      console.error('[TTS] Failed:', err)
+      return { success: false, error: err.message || 'Failed to generate speech' }
     }
   })
 

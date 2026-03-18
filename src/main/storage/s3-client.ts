@@ -7,8 +7,8 @@ function getS3(): S3Client {
     s3Client = new S3Client({
       region: process.env.S3_REGION || process.env.AWS_REGION || 'us-east-1',
       credentials: {
-        accessKeyId: process.env.S3_ACCESS_KEY || '',
-        secretAccessKey: process.env.S3_SECRET_VALUE || ''
+        accessKeyId: process.env.S3_ACCESS_KEY || process.env.AWS_ACCESS_KEY_ID || '',
+        secretAccessKey: process.env.S3_SECRET_VALUE || process.env.AWS_SECRET_ACCESS_KEY || ''
       }
     })
     console.log('[S3] Client initialized')
@@ -54,6 +54,11 @@ export async function uploadSessionSummary(sessionId: string, summary: string): 
 export async function uploadFinetuneData(batchName: string, jsonlData: string): Promise<string> {
   const key = `finetune/${batchName}.jsonl`
   return uploadFile(key, Buffer.from(jsonlData), 'application/jsonl')
+}
+
+export async function uploadSessionFrame(sessionId: string, frameIndex: number, jpegBuffer: Buffer): Promise<string> {
+  const key = `frames/${sessionId}/frame-${String(frameIndex).padStart(5, '0')}.jpg`
+  return uploadFile(key, jpegBuffer, 'image/jpeg')
 }
 
 export async function downloadFile(key: string): Promise<Buffer> {

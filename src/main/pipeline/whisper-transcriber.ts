@@ -39,6 +39,18 @@ export class WhisperTranscriber extends EventEmitter {
     console.log(`[WhisperTranscriber] Configured: sampleRate=${sampleRate}`)
   }
 
+  private languageCode: string = ''
+
+  setLanguage(lang: string) {
+    // Map display names to ISO 639-1 codes for Whisper API
+    const langMap: Record<string, string> = {
+      'English': 'en', 'Vietnamese': 'vi', 'Spanish': 'es', 'French': 'fr',
+      'German': 'de', 'Japanese': 'ja', 'Korean': 'ko', 'Chinese (Simplified)': 'zh'
+    }
+    this.languageCode = langMap[lang] || ''
+    console.log(`[WhisperTranscriber] Language set: ${lang} → ${this.languageCode || 'auto'}`)
+  }
+
   /** Add a PCM16 audio chunk to the buffer */
   addChunk(pcmData: Buffer) {
     const int16 = new Int16Array(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength / 2)
@@ -236,6 +248,15 @@ export class WhisperTranscriber extends EventEmitter {
       `Content-Disposition: form-data; name="temperature"\r\n\r\n` +
       `0\r\n`
     ))
+
+    // Language (helps Whisper pick the correct language)
+    if (this.languageCode) {
+      parts.push(Buffer.from(
+        `--${boundary}\r\n` +
+        `Content-Disposition: form-data; name="language"\r\n\r\n` +
+        `${this.languageCode}\r\n`
+      ))
+    }
 
     // End
     parts.push(Buffer.from(`--${boundary}--\r\n`))

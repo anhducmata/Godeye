@@ -6,7 +6,8 @@ import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './components/MermaidBlock'
 import { Sidebar, SidebarHandle } from './components/Sidebar'
 import { ChatWidget } from './components/ChatWidget'
-import { Mic, Video, Camera, Music, Film, Image, FileText, ClipboardPaste, Square, ChevronDown, Volume2, ArrowUp, ArrowDown, CircleDollarSign } from 'lucide-react'
+import { getTranslations } from './i18n'
+import { Mic, Video, Camera, Music, Film, Image, FileText, ClipboardPaste, Square, ChevronDown, Volume2, ArrowUp, ArrowDown, CircleDollarSign, Play, X, Sparkles, Crop, Monitor } from 'lucide-react'
 
 type AppView = 'sessions' | 'recording' | 'viewing' | 'search'
 
@@ -67,7 +68,8 @@ function App() {
   const {
     state, options, setOptions, elapsed,
     debugLogs, addDebugLog,
-    startCapture, stopCapture
+    startCapture, stopCapture,
+    loadSources, selectArea, setSelectedSource, cropRegion, latestFrame
   } = useCapture()
 
   const { transcripts, interimTranscript, interimWhisperTranscript, summary, postMeetingProcessing, tokenCount, tokenUsage, clearAll, startListening, stopListening } = useTranscript()
@@ -80,7 +82,20 @@ function App() {
   const [showDebug, setShowDebug] = useState(false)
   const [apiKey, setApiKey] = useState('')
   const [apiProvider, setApiProvider] = useState<'openai' | 'gemini'>('gemini')
-  const [language, setLanguage] = useState('English')
+  const [aiModel, setAiModel] = useState(() => {
+    const saved = localStorage.getItem('meetsense-user')
+    if (saved) {
+      try { return JSON.parse(saved)?.aiModel || 'gpt-4o-mini' } catch { return 'gpt-4o-mini' }
+    }
+    return 'gpt-4o-mini'
+  })
+  const [language, setLanguage] = useState(() => {
+    const saved = localStorage.getItem('meetsense-user')
+    if (saved) {
+      try { return JSON.parse(saved)?.language || 'English' } catch { return 'English' }
+    }
+    return 'English'
+  })
   const [colorTheme, setColorTheme] = useState(() => {
     const saved = localStorage.getItem('meetsense-theme')
     return saved && THEMES[saved] ? saved : 'blue'
@@ -91,6 +106,19 @@ function App() {
   const [searchMode, setSearchMode] = useState<'fulltext' | 'exact'>('fulltext')
   const [newSessionType, setNewSessionType] = useState<string>('record-audio')
   const [showNewDropdown, setShowNewDropdown] = useState(false)
+  const [showPasteModal, setShowPasteModal] = useState(false)
+  const [pasteText, setPasteText] = useState('')
+  const [pasteAnalyzing, setPasteAnalyzing] = useState(false)
+  const [sectionSummarizing, setSectionSummarizing] = useState(false)
+  const [ttsAudio, setTtsAudio] = useState<HTMLAudioElement | null>(null)
+  const [sectionSummaryText, setSectionSummaryText] = useState<string | null>(null)
+  const [ttsTitle, setTtsTitle] = useState('')
+  const [ttsChunks, setTtsChunks] = useState<string[]>([])
+  const [ttsActiveChunk, setTtsActiveChunk] = useState(-1)
+  const [showMagicPrompt, setShowMagicPrompt] = useState(false)
+  const [magicPrompt, setMagicPrompt] = useState('')
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [colWidths, setColWidths] = useState([33.33, 33.33, 33.34])
   const [authEmail, setAuthEmail] = useState('')
   const [authPassword, setAuthPassword] = useState('')
   const [authConfirm, setAuthConfirm] = useState('')
@@ -101,6 +129,7 @@ function App() {
     return saved ? JSON.parse(saved) : null
   })
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const t = getTranslations(language)
 
   const sidebarRef = useRef<SidebarHandle>(null)
   const transcriptEndRef = useRef<HTMLDivElement>(null)
@@ -138,15 +167,29 @@ function App() {
     debugEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [debugLogs])
 
-  // Auto-refresh sidebar when post-meeting processing completes
+  // Auto-load the saved session when post-meeting processing completes
+  const prevProcessingRef = useRef(false)
   useEffect(() => {
-    if (postMeetingProcessing === false) {
-      // Processing just finished — switch to sessions view and refresh sidebar
-      if (view === 'recording') {
-        setView('sessions')
-      }
-      setTimeout(() => sidebarRef.current?.refresh(), 500)
+    // Only act on the transition from true → false (processing just finished)
+    if (prevProcessingRef.current && !postMeetingProcessing) {
+      // Load the completed session from DB so user sees full saved data
+      setTimeout(async () => {
+        sidebarRef.current?.refresh()
+        try {
+          const sessions = await window.meetsense?.listSessions()
+          if (sessions?.length > 0) {
+            const data = await window.meetsense?.getSession(sessions[0].id)
+            if (data) {
+              setLoadedSession(data)
+              setView('viewing')
+            }
+          }
+        } catch (err) {
+          console.error('[App] Failed to auto-load completed session:', err)
+        }
+      }, 500)
     }
+    prevProcessingRef.current = postMeetingProcessing
   }, [postMeetingProcessing])
 
   // Close new session dropdown on click outside
@@ -158,14 +201,185 @@ function App() {
   }, [showNewDropdown])
 
   const handleNewSession = async () => {
+    if (newSessionType === 'paste-memory') {
+      setShowPasteModal(true)
+      return
+    }
     await window.meetsense?.setApiKey({ apiKey, provider: apiProvider, language })
     clearAll()
-    addDebugLog(`▶ Starting: audio=${options.systemAudio}, mic=${options.microphone}`)
-    await startCapture()
+
+    // For record-video: auto-enable screen capture and select primary display
+    let screenOverrides: { sourceId?: string; enableScreenCapture?: boolean; cropRegion?: any } | undefined
+    if (newSessionType === 'record-video') {
+      addDebugLog('🖥️ Screen recording mode — loading sources...')
+      const screenSources = await window.meetsense?.getScreenSources()
+      if (screenSources?.length > 0) {
+        const primary = screenSources[0]
+        setSelectedSource(primary)
+        addDebugLog(`🖥️ Auto-selected source: ${primary.name}`)
+        screenOverrides = {
+          sourceId: primary.id,
+          enableScreenCapture: true,
+          cropRegion: cropRegion
+        }
+      }
+    }
+
+    addDebugLog(`▶ Starting: audio=${options.systemAudio}, mic=${options.microphone}, screen=${newSessionType === 'record-video'}`)
+    await startCapture(screenOverrides)
     startListening()
     setView('recording')
     // Refresh sidebar to show the new "in progress" session
     setTimeout(() => sidebarRef.current?.refresh(), 1000)
+  }
+
+  const ttsStopRef = React.useRef(false)
+
+  // Show summary modal (translate if needed) — NO auto TTS
+  const handleShowSummary = async (text: string, title?: string) => {
+    if (sectionSummarizing || !text.trim()) return
+    setSectionSummarizing(true)
+    setSectionSummaryText(text)
+    setTtsTitle(title || 'Summary')
+    setTtsChunks([])
+    setTtsActiveChunk(-1)
+
+    // Translate to user's language
+    let processedText = text
+    try {
+      const translateResult = await window.meetsense?.translateForTts({ text, language })
+      if (translateResult?.success && translateResult.translated) {
+        processedText = translateResult.translated
+        setSectionSummaryText(processedText)
+      }
+    } catch {}
+
+    // Pre-split into chunks for display
+    const maxChunk = 150
+    const sentences = processedText.match(/[^.!?。！？]+[.!?。！？]+/g) || [processedText]
+    const chunks: string[] = []
+    let current = ''
+    for (const s of sentences) {
+      if ((current + s).length > maxChunk && current) {
+        chunks.push(current.trim())
+        current = s
+      } else {
+        current += s
+      }
+    }
+    if (current.trim()) chunks.push(current.trim())
+    setTtsChunks(chunks.slice(0, 20))
+    setSectionSummarizing(false)
+  }
+
+  // Start TTS playback from inside the modal
+  const handlePlayTts = async () => {
+    if (ttsChunks.length === 0) return
+    if (ttsAudio) { ttsAudio.pause(); setTtsAudio(null) }
+    ttsStopRef.current = false
+    setTtsActiveChunk(-1)
+
+    const fetchAudio = async (chunk: string): Promise<string | null> => {
+      try {
+        const result = await window.meetsense?.ttsRead({ text: chunk })
+        return result?.success && result.audio ? result.audio : null
+      } catch { return null }
+    }
+
+    let nextAudioPromise = fetchAudio(ttsChunks[0])
+
+    for (let i = 0; i < ttsChunks.length; i++) {
+      if (ttsStopRef.current) break
+      setTtsActiveChunk(i)
+
+      const audioBase64 = await nextAudioPromise
+      if (i + 1 < ttsChunks.length) {
+        nextAudioPromise = fetchAudio(ttsChunks[i + 1])
+      }
+
+      if (!audioBase64 || ttsStopRef.current) break
+
+      await new Promise<void>((resolve) => {
+        const audio = new Audio(`data:audio/mp3;base64,${audioBase64}`)
+        setTtsAudio(audio)
+        audio.onended = () => resolve()
+        audio.onerror = () => resolve()
+        audio.play().catch(() => resolve())
+      })
+    }
+
+    if (!ttsStopRef.current) {
+      setTtsAudio(null)
+      setTtsActiveChunk(-1)
+    }
+  }
+
+  const handleCloseSummary = () => {
+    ttsStopRef.current = true
+    if (ttsAudio) { ttsAudio.pause(); setTtsAudio(null) }
+    setSectionSummaryText(null)
+    setTtsTitle('')
+    setTtsChunks([])
+    setTtsActiveChunk(-1)
+  }
+
+  const handleCustomSummarize = async (prompt: string) => {
+    if (!loadedSession?.session?.id || !prompt.trim()) return
+    setSectionSummarizing(true)
+    setShowMagicPrompt(false)
+    setMagicPrompt('')
+
+    const items: string[] = []
+    // Only use raw transcript data
+    if (loadedSession.transcripts?.length) {
+      items.push(...loadedSession.transcripts.map((t: any) => t.text))
+    }
+
+    try {
+      const result = await window.meetsense?.customSummarize({ sessionId: loadedSession.session.id, items, prompt, language })
+      console.log('[Magic] Result:', JSON.stringify(result, null, 2))
+      if (result?.success && result.summary) {
+        // Update loaded session data in-place so columns refresh
+        setLoadedSession((prev: any) => prev ? {
+          ...prev,
+          summary: {
+            ...prev.summary,
+            ...result.summary
+          }
+        } : prev)
+        addDebugLog(`✨ AI Rewrite completed: ${Object.keys(result.summary).join(', ')}`)
+      } else {
+        console.error('[Magic] Failed:', result?.error)
+        addDebugLog(`✨ AI Rewrite failed: ${result?.error || 'Unknown error'}`)
+      }
+    } catch (err) {
+      console.error('[Magic] Error:', err)
+    }
+    setSectionSummarizing(false)
+  }
+
+  const handlePasteMemorySubmit = async () => {
+    if (!pasteText.trim() || pasteAnalyzing) return
+    setPasteAnalyzing(true)
+    try {
+      const result = await window.meetsense?.analyzePasteMemory({ text: pasteText, language })
+      if (result?.success && result.sessionId) {
+        setShowPasteModal(false)
+        setPasteText('')
+        sidebarRef.current?.refresh()
+        // Load the newly created session
+        const data = await window.meetsense?.getSession(result.sessionId)
+        if (data) {
+          setLoadedSession(data)
+          setView('viewing')
+        }
+      } else {
+        console.error('[PasteMemory] Analysis failed:', result?.error)
+      }
+    } catch (err) {
+      console.error('[PasteMemory] Error:', err)
+    }
+    setPasteAnalyzing(false)
   }
 
   const handleEndSession = async () => {
@@ -189,8 +403,18 @@ function App() {
   }
 
   const handleSaveSettings = async () => {
-    await window.meetsense?.setApiKey({ apiKey, provider: apiProvider, language })
-    addDebugLog(`⚙️ Config set for ${apiProvider} (${language})`)
+    await window.meetsense?.setApiKey({ apiKey, provider: apiProvider, language, model: aiModel })
+    // Persist language + model in localStorage so it survives reloads
+    try {
+      const saved = localStorage.getItem('meetsense-user')
+      if (saved) {
+        const user = JSON.parse(saved)
+        user.language = language
+        user.aiModel = aiModel
+        localStorage.setItem('meetsense-user', JSON.stringify(user))
+      }
+    } catch {}
+    addDebugLog(`⚙️ Config set for ${apiProvider} / ${aiModel} (${language})`)
     setShowSettings(false)
   }
 
@@ -212,6 +436,7 @@ function App() {
       const result = await window.meetsense?.authRegister({ email: authEmail, password: authPassword, displayName: authName })
       if (result?.success) {
         setCurrentUser(result.user)
+        if (result.user?.language) setLanguage(result.user.language)
         localStorage.setItem('meetsense-user', JSON.stringify(result.user))
         setShowAuth(false)
         setAuthEmail(''); setAuthPassword(''); setAuthConfirm(''); setAuthName('')
@@ -222,6 +447,7 @@ function App() {
       const result = await window.meetsense?.authLogin({ email: authEmail, password: authPassword })
       if (result?.success) {
         setCurrentUser(result.user)
+        if (result.user?.language) setLanguage(result.user.language)
         localStorage.setItem('meetsense-user', JSON.stringify(result.user))
         setShowAuth(false)
         setAuthEmail(''); setAuthPassword('')
@@ -255,18 +481,120 @@ function App() {
     }, 400)
   }
 
+  // Column resizer drag handler
+  const handleColumnResize = (index: number) => (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidths = [...colWidths]
+    const container = (e.target as HTMLElement).closest('.columns') as HTMLElement
+    if (!container) return
+    const totalWidth = container.offsetWidth
+
+    const onMouseMove = (ev: MouseEvent) => {
+      const delta = ((ev.clientX - startX) / totalWidth) * 100
+      const newWidths = [...startWidths]
+      newWidths[index] = Math.max(15, startWidths[index] + delta)
+      newWidths[index + 1] = Math.max(15, startWidths[index + 1] - delta)
+      setColWidths(newWidths)
+    }
+    const onMouseUp = () => {
+      document.removeEventListener('mousemove', onMouseMove)
+      document.removeEventListener('mouseup', onMouseUp)
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    document.addEventListener('mousemove', onMouseMove)
+    document.addEventListener('mouseup', onMouseUp)
+  }
+
   return (
     <div className="app-layout">
-      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} onOpenAuth={() => setShowAuth(true)} onLogout={handleLogout} onGoHome={() => { setView('sessions'); setLoadedSession(null) }} isRecording={state === 'capturing'} isProcessing={!!postMeetingProcessing} tokenCount={tokenCount} currentUser={currentUser} />
+      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} onOpenAuth={() => setShowAuth(true)} onLogout={handleLogout} onGoHome={() => { setView('sessions'); setLoadedSession(null) }} isRecording={state === 'capturing'} isProcessing={!!postMeetingProcessing} tokenCount={tokenCount} currentUser={currentUser} collapsed={sidebarCollapsed} onToggleCollapse={() => setSidebarCollapsed(!sidebarCollapsed)} />
       <div className="app">
+
+      {/* Paste Memory Modal */}
+      {showPasteModal && (
+        <div className="modal-overlay" onClick={() => { if (!pasteAnalyzing) { setShowPasteModal(false); setPasteText('') } }}>
+          <div className="modal modal--wide" onClick={e => e.stopPropagation()}>
+            <h2 className="modal__title"><ClipboardPaste size={18} style={{ marginRight: 8, verticalAlign: -3 }} />{t.pasteMemoryTitle}</h2>
+            <div className="modal__field">
+              <textarea
+                className="paste-memory__textarea"
+                placeholder={t.pasteMemoryPlaceholder}
+                value={pasteText}
+                onChange={e => setPasteText(e.target.value)}
+                rows={14}
+                autoFocus
+                disabled={pasteAnalyzing}
+              />
+            </div>
+            <div className="modal__actions">
+              <button className="btn" onClick={() => { setShowPasteModal(false); setPasteText('') }} disabled={pasteAnalyzing}>{t.cancel}</button>
+              <button className="btn btn--primary" onClick={handlePasteMemorySubmit} disabled={!pasteText.trim() || pasteAnalyzing}>
+                {pasteAnalyzing ? <><span className="paste-memory__spinner" />{t.pasteMemoryAnalyzing}</> : t.pasteMemoryAnalyze}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Section Summary + TTS Modal */}
+      {sectionSummaryText && (
+        <div className="modal-overlay" onClick={handleCloseSummary}>
+          <div className="modal modal--wide" onClick={e => e.stopPropagation()}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h2 className="modal__title" style={{ margin: 0 }}>📝 Summary</h2>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                {ttsAudio ? (
+                  <button className="btn btn--icon" onClick={() => { ttsStopRef.current = true; if (ttsAudio) { ttsAudio.pause(); setTtsAudio(null); setTtsActiveChunk(-1) } }} title="Stop"><Square size={12} /></button>
+                ) : (
+                  <button className="btn btn--icon" onClick={handlePlayTts} title="Read aloud" disabled={ttsChunks.length === 0}><Play size={14} /></button>
+                )}
+                <button className="btn btn--icon" onClick={handleCloseSummary}><X size={14} /></button>
+              </div>
+            </div>
+            {sectionSummarizing && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '4px 0 8px', color: 'var(--text-3)', fontSize: 11 }}>
+                <span className="paste-memory__spinner" /> Loading...
+              </div>
+            )}
+            {ttsAudio && !sectionSummarizing && (
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '4px 0 8px', color: 'var(--accent-2)', fontSize: 11 }}>
+                🔊 Playing...
+              </div>
+            )}
+            <div className="section-summary__text">
+              {ttsChunks.length > 0 ? (
+                ttsChunks.map((chunk, i) => (
+                  <p key={i} className={`tts-chunk ${i === ttsActiveChunk ? 'tts-chunk--active' : i < ttsActiveChunk ? 'tts-chunk--done' : ''}`}>
+                    {chunk}
+                  </p>
+                ))
+              ) : (
+                <div className="document-summary" dangerouslySetInnerHTML={{ __html: sectionSummaryText
+                  .replace(/^## (.+)$/gm, '<h3>$1</h3>')
+                  .replace(/^### (.+)$/gm, '<h4>$1</h4>')
+                  .replace(/^- (.+)$/gm, '<li>$1</li>')
+                  .replace(/(<li>[\s\S]*?<\/li>)/g, '<ul>$&</ul>')
+                  .replace(/<\/ul>\s*<ul>/g, '')
+                  .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+                  .replace(/\n/g, '<br />')
+                }} />
+              )}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Settings Modal */}
       {showSettings && (
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2 className="modal__title">Settings</h2>
+            <h2 className="modal__title">{t.settings}</h2>
             <div className="modal__field">
-              <label>Color Theme</label>
+              <label>{t.colorTheme}</label>
               <select value={colorTheme} onChange={e => setColorTheme(e.target.value)}>
                 {Object.entries(THEMES).map(([key, theme]) => (
                   <option key={key} value={key}>{theme.label}</option>
@@ -274,7 +602,7 @@ function App() {
               </select>
             </div>
             <div className="modal__field">
-              <label>Language</label>
+              <label>{t.language}</label>
               <select value={language} onChange={e => setLanguage(e.target.value)}>
                 <option value="English">English</option>
                 <option value="Vietnamese">Vietnamese</option>
@@ -286,9 +614,21 @@ function App() {
                 <option value="Chinese (Simplified)">Chinese</option>
               </select>
             </div>
+            <div className="modal__field">
+              <label>AI Model</label>
+              <select value={aiModel} onChange={e => setAiModel(e.target.value)}>
+                <option value="gpt-5.3-chat-latest">GPT-5.3 Chat (latest)</option>
+                <option value="gpt-4o-mini">GPT-4o Mini (fast, cheap)</option>
+                <option value="gpt-4o">GPT-4o (balanced)</option>
+                <option value="gpt-4.1-mini">GPT-4.1 Mini</option>
+                <option value="gpt-4.1">GPT-4.1</option>
+                <option value="gpt-4.1-nano">GPT-4.1 Nano (fastest)</option>
+                <option value="o4-mini">o4-mini (reasoning)</option>
+              </select>
+            </div>
             <div className="modal__actions">
-              <button className="btn" onClick={() => setShowSettings(false)}>Cancel</button>
-              <button className="btn btn--primary" onClick={handleSaveSettings}>Save</button>
+              <button className="btn" onClick={() => setShowSettings(false)}>{t.cancel}</button>
+              <button className="btn btn--primary" onClick={handleSaveSettings}>{t.save}</button>
             </div>
           </div>
         </div>
@@ -298,35 +638,35 @@ function App() {
       {showAuth && (
         <div className="modal-overlay" onClick={() => setShowAuth(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
-            <h2 className="modal__title">{authTab === 'signin' ? 'Sign In' : 'Create Account'}</h2>
+            <h2 className="modal__title">{authTab === 'signin' ? t.signIn : t.register}</h2>
             <div className="auth-tabs">
-              <button className={`auth-tab ${authTab === 'signin' ? 'auth-tab--active' : ''}`} onClick={() => { setAuthTab('signin'); setAuthError('') }}>Sign In</button>
-              <button className={`auth-tab ${authTab === 'register' ? 'auth-tab--active' : ''}`} onClick={() => { setAuthTab('register'); setAuthError('') }}>Register</button>
+              <button className={`auth-tab ${authTab === 'signin' ? 'auth-tab--active' : ''}`} onClick={() => { setAuthTab('signin'); setAuthError('') }}>{t.signIn}</button>
+              <button className={`auth-tab ${authTab === 'register' ? 'auth-tab--active' : ''}`} onClick={() => { setAuthTab('register'); setAuthError('') }}>{t.register}</button>
             </div>
             {authError && <div className="auth-error">{authError}</div>}
             {authTab === 'register' && (
               <div className="modal__field">
-                <label>Display Name</label>
+                <label>{t.displayName}</label>
                 <input type="text" placeholder="Your name" value={authName} onChange={e => setAuthName(e.target.value)} />
               </div>
             )}
             <div className="modal__field">
-              <label>Email</label>
+              <label>{t.email}</label>
               <input type="email" placeholder="you@example.com" value={authEmail} onChange={e => setAuthEmail(e.target.value)} />
             </div>
             <div className="modal__field">
-              <label>Password</label>
+              <label>{t.password}</label>
               <input type="password" placeholder="••••••••" value={authPassword} onChange={e => setAuthPassword(e.target.value)} />
             </div>
             {authTab === 'register' && (
               <div className="modal__field">
-                <label>Confirm Password</label>
+                <label>{t.confirmPassword}</label>
                 <input type="password" placeholder="••••••••" value={authConfirm} onChange={e => setAuthConfirm(e.target.value)} />
               </div>
             )}
             <div className="modal__actions">
-              <button className="btn" onClick={() => setShowAuth(false)}>Cancel</button>
-              <button className="btn btn--primary" onClick={handleAuth}>{authTab === 'signin' ? 'Sign In' : 'Register'}</button>
+              <button className="btn" onClick={() => setShowAuth(false)}>{t.cancel}</button>
+              <button className="btn btn--primary" onClick={handleAuth}>{authTab === 'signin' ? t.signIn : t.register}</button>
             </div>
           </div>
         </div>
@@ -344,47 +684,47 @@ function App() {
                 <input
                   type="text"
                   className="search-bar__input"
-                  placeholder="Search across all meetings..."
+                  placeholder={t.searchPlaceholder}
                   value={searchQuery}
                   onChange={e => handleSearch(e.target.value)}
                 />
                 {searching && <span className="search-bar__spinner" />}
               </div>
             </div>
-            <div className="topbar__right" />
-          </header>
-
-          <main className="sessions-view">
-            <div className="sessions-view__hero">
-              <h1 className="sessions-view__title">Your Meetings</h1>
-              <p className="sessions-view__subtitle">Start a new session or review past conversations</p>
-            </div>
-
-            <div className="sessions-view__actions">
+            <div className="topbar__right">
+              {newSessionType === 'record-video' && (
+                <button className="btn btn--sm btn--area" onClick={selectArea} title="Select recording area">
+                  {cropRegion ? (
+                    <><Crop size={12} /> {cropRegion.width}×{cropRegion.height}</>
+                  ) : (
+                    <><Monitor size={12} /> Full Screen</>
+                  )}
+                </button>
+              )}
               {(newSessionType === 'record-audio' || newSessionType === 'record-video') && (
-                <div className="new-session-controls">
-                  <label className="toggle-pill">
+                <>
+                  <label className="toggle-pill toggle-pill--sm">
                     <input type="checkbox" checked={options.systemAudio}
                       onChange={e => setOptions({ ...options, systemAudio: e.target.checked })} />
-                    <span><Volume2 size={13} /> System</span>
+                    <span><Volume2 size={12} /> {t.system}</span>
                   </label>
-                  <label className="toggle-pill">
+                  <label className="toggle-pill toggle-pill--sm">
                     <input type="checkbox" checked={options.microphone}
                       onChange={e => setOptions({ ...options, microphone: e.target.checked })} />
-                    <span><Mic size={13} /> Mic</span>
+                    <span><Mic size={12} /> {t.mic}</span>
                   </label>
-                </div>
+                </>
               )}
-              <div className="btn-split">
+              <div className="btn-split btn-split--sm">
                 <button className="btn-split__main" onClick={handleNewSession}>
-                  {newSessionType === 'record-audio' && <><Mic size={14} /> Record Audio</>}
-                  {newSessionType === 'upload-image' && <><Image size={14} /> Upload Image</>}
-                  {newSessionType === 'upload-audio' && <><Music size={14} /> Upload Audio</>}
-                  {newSessionType === 'upload-video' && <><Film size={14} /> Upload Video</>}
-                  {newSessionType === 'record-video' && <><Video size={14} /> Record Video</>}
-                  {newSessionType === 'take-picture' && <><Camera size={14} /> Take Picture</>}
-                  {newSessionType === 'upload-text' && <><FileText size={14} /> Upload Text</>}
-                  {newSessionType === 'paste-memory' && <><ClipboardPaste size={14} /> Paste Memory</>}
+                  {newSessionType === 'record-audio' && <><Mic size={14} /> {t.recordAudio}</>}
+                  {newSessionType === 'record-video' && <><Video size={14} /> {t.recordScreen}</>}
+                  {newSessionType === 'take-picture' && <><Camera size={14} /> {t.takePicture}</>}
+                  {newSessionType === 'upload-audio' && <><Music size={14} /> {t.uploadAudio}</>}
+                  {newSessionType === 'upload-video' && <><Film size={14} /> {t.uploadVideo}</>}
+                  {newSessionType === 'upload-image' && <><Image size={14} /> {t.uploadImage}</>}
+                  {newSessionType === 'upload-text' && <><FileText size={14} /> {t.uploadText}</>}
+                  {newSessionType === 'paste-memory' && <><ClipboardPaste size={14} /> {t.pasteMemory}</>}
                 </button>
                 <button className="btn-split__toggle" onClick={(e) => { e.stopPropagation(); setShowNewDropdown(!showNewDropdown) }}>
                   <ChevronDown size={14} />
@@ -392,19 +732,19 @@ function App() {
                 {showNewDropdown && (
                   <div className="btn-split__dropdown">
                     {[
-                      { id: 'record-audio', icon: Mic, label: 'Record Audio' },
-                      { id: 'record-video', icon: Video, label: 'Record Video' },
-                      { id: 'take-picture', icon: Camera, label: 'Take Picture' },
-                      { id: 'upload-audio', icon: Music, label: 'Upload Audio' },
-                      { id: 'upload-video', icon: Film, label: 'Upload Video' },
-                      { id: 'upload-image', icon: Image, label: 'Upload Image' },
-                      { id: 'upload-text', icon: FileText, label: 'Upload Text' },
-                      { id: 'paste-memory', icon: ClipboardPaste, label: 'Paste Memory' },
+                      { id: 'record-audio', icon: Mic, label: t.recordAudio },
+                      { id: 'record-video', icon: Video, label: t.recordScreen },
+                      { id: 'take-picture', icon: Camera, label: t.takePicture },
+                      { id: 'upload-audio', icon: Music, label: t.uploadAudio },
+                      { id: 'upload-video', icon: Film, label: t.uploadVideo },
+                      { id: 'upload-image', icon: Image, label: t.uploadImage },
+                      { id: 'upload-text', icon: FileText, label: t.uploadText },
+                      { id: 'paste-memory', icon: ClipboardPaste, label: t.pasteMemory },
                     ].map(opt => (
                       <button
                         key={opt.id}
                         className={`btn-split__option ${newSessionType === opt.id ? 'btn-split__option--active' : ''}`}
-                        onClick={() => { setNewSessionType(opt.id); setShowNewDropdown(false) }}
+                        onClick={() => { setNewSessionType(opt.id as any); setShowNewDropdown(false) }}
                       >
                         <opt.icon size={14} /> {opt.label}
                       </button>
@@ -413,6 +753,15 @@ function App() {
                 )}
               </div>
             </div>
+          </header>
+
+          <main className="sessions-view">
+            <div className="sessions-view__hero">
+              <h1 className="sessions-view__title">{t.yourMeetings}</h1>
+              <p className="sessions-view__subtitle">{t.startNewSession}</p>
+            </div>
+
+
 
 
           </main>
@@ -438,7 +787,38 @@ function App() {
                 />
               </div>
             </div>
-            <div className="topbar__right" />
+            <div className="topbar__right">
+              <div className="btn-split btn-split--sm">
+                <button className="btn-split__main" onClick={handleNewSession}>
+                  <Mic size={14} /> Record
+                </button>
+                <button className="btn-split__toggle" onClick={(e) => { e.stopPropagation(); setShowNewDropdown(!showNewDropdown) }}>
+                  <ChevronDown size={14} />
+                </button>
+                {showNewDropdown && (
+                  <div className="btn-split__dropdown">
+                    {[
+                      { id: 'record-audio', icon: Mic, label: 'Record Audio' },
+                      { id: 'record-video', icon: Video, label: 'Record Screen' },
+                      { id: 'take-picture', icon: Camera, label: 'Take Picture' },
+                      { id: 'upload-audio', icon: Music, label: 'Upload Audio' },
+                      { id: 'upload-video', icon: Film, label: 'Upload Video' },
+                      { id: 'upload-image', icon: Image, label: 'Upload Image' },
+                      { id: 'upload-text', icon: FileText, label: 'Upload Text' },
+                      { id: 'paste-memory', icon: ClipboardPaste, label: 'Paste Memory' },
+                    ].map(opt => (
+                      <button
+                        key={opt.id}
+                        className={`btn-split__option ${newSessionType === opt.id ? 'btn-split__option--active' : ''}`}
+                        onClick={() => { setNewSessionType(opt.id as any); setShowNewDropdown(false) }}
+                      >
+                        <opt.icon size={14} /> {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </header>
 
           <main className="search-page">
@@ -526,11 +906,71 @@ function App() {
                 />
               </div>
             </div>
-            <div className="topbar__right" />
+            <div className="topbar__right">
+              <div className="btn-split btn-split--sm">
+                <button className="btn-split__main" onClick={handleNewSession}>
+                  <Mic size={14} /> Record
+                </button>
+                <button className="btn-split__toggle" onClick={(e) => { e.stopPropagation(); setShowNewDropdown(!showNewDropdown) }}>
+                  <ChevronDown size={14} />
+                </button>
+                {showNewDropdown && (
+                  <div className="btn-split__dropdown">
+                    {[
+                      { id: 'record-audio', icon: Mic, label: 'Record Audio' },
+                      { id: 'record-video', icon: Video, label: 'Record Screen' },
+                      { id: 'take-picture', icon: Camera, label: 'Take Picture' },
+                      { id: 'upload-audio', icon: Music, label: 'Upload Audio' },
+                      { id: 'upload-video', icon: Film, label: 'Upload Video' },
+                      { id: 'upload-image', icon: Image, label: 'Upload Image' },
+                      { id: 'upload-text', icon: FileText, label: 'Upload Text' },
+                      { id: 'paste-memory', icon: ClipboardPaste, label: 'Paste Memory' },
+                    ].map(opt => (
+                      <button
+                        key={opt.id}
+                        className={`btn-split__option ${newSessionType === opt.id ? 'btn-split__option--active' : ''}`}
+                        onClick={() => { setNewSessionType(opt.id as any); setShowNewDropdown(false) }}
+                      >
+                        <opt.icon size={14} /> {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
           </header>
 
           <div className="session-header">
-            <h2 className="session-header__title">{loadedSession.session.title || 'Untitled Session'}</h2>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+              <h2 className="session-header__title">{loadedSession.session.title || 'Untitled Session'}</h2>
+              <button className="btn btn--icon session-header__summarize" title="View summary" disabled={sectionSummarizing} onClick={() => {
+                const text = loadedSession.summary?.document_summary || ''
+                handleShowSummary(text, loadedSession.session.title || 'Summary')
+              }}>{sectionSummarizing ? <span className="paste-memory__spinner" /> : <Play size={14} />}</button>
+              <button className="btn btn--icon session-header__summarize" title="Custom AI prompt" disabled={sectionSummarizing} onClick={() => setShowMagicPrompt(true)}>{sectionSummarizing ? <span className="paste-memory__spinner" /> : <Sparkles size={14} />}</button>
+            </div>
+            {showMagicPrompt && (
+              <div className="modal-overlay" onClick={() => setShowMagicPrompt(false)}>
+                <div className="modal" onClick={e => e.stopPropagation()} style={{ maxWidth: 480 }}>
+                  <h2 className="modal__title">✨ AI Rewrite</h2>
+                  <p style={{ fontSize: 12, color: 'var(--text-3)', margin: '0 0 12px' }}>Enter your instructions to regenerate the session summary, statements, facts, and questions.</p>
+                  <div className="modal__field">
+                    <textarea
+                      style={{ width: '100%', fontSize: 13, padding: '8px 12px', borderRadius: 8, border: '1px solid rgba(255,255,255,0.1)', background: 'var(--bg-2)', color: 'var(--text)', minHeight: 80, resize: 'vertical', fontFamily: 'inherit' }}
+                      placeholder="e.g. Summarize briefly in bullet points, list action items, rewrite in Vietnamese..."
+                      value={magicPrompt}
+                      onChange={e => setMagicPrompt(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey && magicPrompt.trim()) { e.preventDefault(); handleCustomSummarize(magicPrompt) } }}
+                      autoFocus
+                    />
+                  </div>
+                  <div className="modal__actions">
+                    <button className="btn" onClick={() => setShowMagicPrompt(false)}>Cancel</button>
+                    <button className="btn btn--primary" disabled={!magicPrompt.trim()} onClick={() => handleCustomSummarize(magicPrompt)}>✨ Regenerate</button>
+                  </div>
+                </div>
+              </div>
+            )}
             <span className="session-header__date">
               {new Date(loadedSession.session.created_at).toLocaleString()}
               {loadedSession.session.duration_seconds && ` · ${formatTime(loadedSession.session.duration_seconds)}`}
@@ -549,18 +989,18 @@ function App() {
             )}
           </div>
 
-          <main className="columns">
+          <main className="columns" style={{ gridTemplateColumns: colWidths.map(w => `${w}%`).join(' auto ') }}>
             {/* Column 1: Transcript */}
             <section className="col">
               <div className="col__head">
-                <h2>Transcript</h2>
+                <h2>{t.transcription}</h2>
                 <span className="badge">{loadedSession.transcripts.length}</span>
               </div>
               <div className="col__body">
                 {loadedSession.transcripts.length === 0 ? (
                   <div className="empty">
                     <div className="empty__icon">📝</div>
-                    <p>No transcript saved for this session</p>
+                    <p>{t.noTranscript}</p>
                   </div>
                 ) : (
                   <div className="chat-list">
@@ -568,7 +1008,7 @@ function App() {
                       <div key={i} className={`chat-bubble ${entry.source === 'whisper' ? 'chat-bubble--primary' : 'chat-bubble--secondary'}`}>
                         <div className="chat-bubble__meta">
                           <span className="chat-bubble__speaker">
-                            {entry.speaker ? entry.speaker.replace(/SPEAKER_(\d+)/g, (_: string, n: string) => `Person ${parseInt(n) + 1}`) : `Person 1`}
+                            {entry.speaker ? entry.speaker.replace(/SPEAKER_(\d+)/g, (_: string, n: string) => `${t.person} ${parseInt(n) + 1}`) : `${t.person} 1`}
                           </span>
                           <span className="chat-bubble__time">{formatTime(Math.floor(entry.start_sec || 0))}</span>
                         </div>
@@ -580,18 +1020,20 @@ function App() {
               </div>
             </section>
 
+            <div className="col-resizer" onMouseDown={handleColumnResize(0)} />
+
             {/* Column 2: Summary */}
             <section className="col">
               <div className="col__head">
-                <h2>Summary</h2>
-                <span className="badge">AI</span>
+                <h2>{t.summary}</h2>
+                <span className="badge">{t.ai}</span>
               </div>
               <div className="col__body" style={{ display: 'flex', flexDirection: 'column', gap: 0, padding: 0 }}>
                 {!loadedSession.summary ? (
                   <div className="empty" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div>
                       <div className="empty__icon">🧠</div>
-                      <p>No summary saved for this session</p>
+                      <p>{t.noSummary}</p>
                     </div>
                   </div>
                 ) : (
@@ -600,7 +1042,7 @@ function App() {
                       <div className="mindmap">
                         {loadedSession.summary.statements?.length > 0 && (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">💬 Statements</div>
+                            <div className="mindmap__label">{t.statements}</div>
                             {loadedSession.summary.statements.map((d: any, i: number) => (
                               <div key={i} className="mindmap__leaf">
                                 <span className="mindmap__badge mindmap__badge--statement" title="Statement">S</span>
@@ -611,7 +1053,7 @@ function App() {
                         )}
                         {loadedSession.summary.facts?.length > 0 && (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">📌 Facts</div>
+                            <div className="mindmap__label">{t.facts}</div>
                             {loadedSession.summary.facts.map((d: any, i: number) => (
                               <div key={i} className="mindmap__leaf">
                                 <span className="mindmap__badge mindmap__badge--fact" title="Fact">F</span>
@@ -622,7 +1064,7 @@ function App() {
                         )}
                         {loadedSession.summary.questions?.length > 0 && (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">❓ Questions</div>
+                            <div className="mindmap__label">{t.questions}</div>
                             {loadedSession.summary.questions.map((q: string, i: number) => (
                               <div key={i} className="mindmap__leaf">
                                 <span className="mindmap__badge mindmap__badge--question" title="Question">Q</span>
@@ -632,7 +1074,7 @@ function App() {
                           </div>
                         )}
                         {!loadedSession.summary.statements?.length && !loadedSession.summary.facts?.length && !loadedSession.summary.questions?.length && (
-                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No items recorded</p>
+                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>{t.noItems}</p>
                         )}
                       </div>
                     </div>
@@ -640,7 +1082,7 @@ function App() {
                       <div className="mindmap">
                         {loadedSession.summary.unclear_points?.length > 0 ? (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">🔍 Unclear Points</div>
+                            <div className="mindmap__label">{t.unclearPoints}</div>
                             {loadedSession.summary.unclear_points.map((u: any, i: number) => (
                               <div key={i} className="mindmap__leaf">
                                 <span className={`mindmap__badge mindmap__badge--${u.type || 'question'}`} title={u.type || 'question'}>{(u.type || 'q').charAt(0).toUpperCase()}</span>
@@ -649,7 +1091,7 @@ function App() {
                             ))}
                           </div>
                         ) : (
-                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No unclear points recorded</p>
+                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>{t.noUnclearPoints}</p>
                         )}
                       </div>
                     </div>
@@ -658,11 +1100,13 @@ function App() {
               </div>
             </section>
 
+            <div className="col-resizer" onMouseDown={handleColumnResize(1)} />
+
             {/* Column 3: Document */}
             <section className="col">
               <div className="col__head">
-                <h2>Document</h2>
-                <span className="badge">Summary</span>
+                <h2>{t.document}</h2>
+                <span className="badge">{t.summaryLabel}</span>
               </div>
               <div className="col__body">
                 {loadedSession.summary?.document_summary ? (
@@ -686,7 +1130,7 @@ function App() {
                 ) : (
                   <div className="empty">
                     <div className="empty__icon">📄</div>
-                    <p>No document summary saved</p>
+                    <p>{t.noDocument}</p>
                   </div>
                 )}
               </div>
@@ -718,31 +1162,31 @@ function App() {
               <label className="toggle-pill">
                 <input type="checkbox" checked={options.systemAudio}
                   onChange={e => setOptions({ ...options, systemAudio: e.target.checked })} />
-                <span><Volume2 size={13} /> System</span>
+                <span><Volume2 size={13} /> {t.system}</span>
               </label>
               <label className="toggle-pill">
                 <input type="checkbox" checked={options.microphone}
                   onChange={e => setOptions({ ...options, microphone: e.target.checked })} />
-                <span><Mic size={13} /> Mic</span>
+                <span><Mic size={13} /> {t.mic}</span>
               </label>
-              <button className="btn btn--danger btn--end" onClick={handleEndSession}><Square size={12} /> End Session</button>
+              <button className="btn btn--danger btn--end" onClick={handleEndSession}><Square size={12} /> {t.stopRecording}</button>
               <button className={`btn btn--icon ${showDebug ? 'btn--active' : ''}`} onClick={() => setShowDebug(!showDebug)} title="Debug">🐛</button>
             </div>
           </header>
 
-          <main className="columns">
+          <main className="columns" style={{ gridTemplateColumns: colWidths.map(w => `${w}%`).join(' auto ') }}>
             {/* Column 1: Transcription */}
             <section className="col">
               <div className="col__head">
-                <h2>Transcription</h2>
-                {state === 'capturing' && <span className="badge badge--live">Live</span>}
+                <h2>{t.transcriptionLive}</h2>
+                {state === 'capturing' && <span className="badge badge--live">{t.live}</span>}
                 {state !== 'capturing' && transcripts.length > 0 && <span className="badge">{transcripts.length}</span>}
               </div>
               <div className="col__body">
                 {transcripts.length === 0 ? (
                   <div className="empty">
                     <div className="empty__icon">🎙️</div>
-                    <p>Listening for audio...</p>
+                    <p>{t.listeningForAudio}</p>
                   </div>
                 ) : (
                   <div className="chat-list">
@@ -790,20 +1234,29 @@ function App() {
                   </div>
                 )}
               </div>
+              {/* Screen capture preview */}
+              {latestFrame && state === 'capturing' && (
+                <div className="screen-preview">
+                  <div className="screen-preview__label"><Monitor size={10} /> Screen Capture</div>
+                  <img className="screen-preview__img" src={latestFrame} alt="Screen capture" />
+                </div>
+              )}
             </section>
+
+            <div className="col-resizer" onMouseDown={handleColumnResize(0)} />
 
             {/* Column 2: Summary */}
             <section className="col">
               <div className="col__head">
-                <h2>Summary</h2>
-                <span className="badge">AI</span>
+                <h2>{t.summary}</h2>
+                <span className="badge">{t.ai}</span>
               </div>
               <div className="col__body" style={{ display: 'flex', flexDirection: 'column', gap: 0, padding: 0 }}>
                 {!summary ? (
                   <div className="empty" style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                     <div>
                       <div className="empty__icon">🧠</div>
-                      <p>Waiting for transcription data...</p>
+                      <p>{t.waitingForSummary}</p>
                     </div>
                   </div>
                 ) : (
@@ -812,7 +1265,7 @@ function App() {
                       <div className="mindmap">
                         {summary.statements?.length > 0 && (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">💬 Statements</div>
+                            <div className="mindmap__label">{t.statements}</div>
                             {summary.statements.map((d: any, i: number) => (
                               <div key={i} className="mindmap__leaf">
                                 <span className="mindmap__badge mindmap__badge--statement" title="Statement">S</span>
@@ -823,7 +1276,7 @@ function App() {
                         )}
                         {summary.facts?.length > 0 && (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">📌 Facts</div>
+                            <div className="mindmap__label">{t.facts}</div>
                             {summary.facts.map((d: any, i: number) => (
                               <div key={i} className="mindmap__leaf">
                                 <span className="mindmap__badge mindmap__badge--fact" title="Fact">F</span>
@@ -834,7 +1287,7 @@ function App() {
                         )}
                         {summary.questions?.length > 0 && (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">❓ Questions</div>
+                            <div className="mindmap__label">{t.questions}</div>
                             {summary.questions.map((q: string, i: number) => (
                               <div key={i} className="mindmap__leaf">
                                 <span className="mindmap__badge mindmap__badge--question" title="Question">Q</span>
@@ -844,7 +1297,7 @@ function App() {
                           </div>
                         )}
                         {!summary.statements?.length && !summary.facts?.length && !summary.questions?.length && (
-                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No items yet...</p>
+                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>{t.noItems}</p>
                         )}
                       </div>
                       <div ref={statementsEndRef} />
@@ -853,7 +1306,7 @@ function App() {
                       <div className="mindmap">
                         {summary.unclear_points?.length > 0 ? (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">🔍 Unclear Points</div>
+                            <div className="mindmap__label">{t.unclearPoints}</div>
                             {summary.unclear_points.map((u: any, i: number) => (
                               <div key={i} className="mindmap__leaf">
                                 <span className={`mindmap__badge mindmap__badge--${u.type || 'question'}`} title={u.type || 'question'}>{(u.type || 'q').charAt(0).toUpperCase()}</span>
@@ -862,7 +1315,7 @@ function App() {
                             ))}
                           </div>
                         ) : (
-                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No unclear points yet...</p>
+                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>{t.noUnclearPoints}</p>
                         )}
                       </div>
                       <div ref={summaryEndRef} />
@@ -872,13 +1325,15 @@ function App() {
               </div>
             </section>
 
+            <div className="col-resizer" onMouseDown={handleColumnResize(1)} />
+
             {/* Column 3: Document / Debug */}
             <section className="col">
               <div className="col__head">
-                <h2>{showDebug ? 'Debug' : 'Document'}</h2>
+                <h2>{showDebug ? t.debugLog : t.document}</h2>
                 {showDebug
                   ? <span className="badge">{debugLogs.length}</span>
-                  : <span className="badge">Summary</span>
+                  : <span className="badge">{t.summaryLabel}</span>
                 }
               </div>
               <div className="col__body">
@@ -896,7 +1351,7 @@ function App() {
                   !summary ? (
                     <div className="empty">
                       <div className="empty__icon">📄</div>
-                      <p>Document will generate soon...</p>
+                      <p>{t.documentWillAppear}</p>
                     </div>
                   ) : (
                   <div className="document-summary" style={{ position: 'relative' }}>
@@ -904,7 +1359,7 @@ function App() {
                       <div className="post-meeting-overlay">
                         <div className="post-meeting-overlay__content">
                           <div className="post-meeting-overlay__spinner" />
-                          <p>Generating final speaker-aware summary...</p>
+                          <p>{t.finalizingSession}</p>
                         </div>
                       </div>
                     )}
@@ -943,7 +1398,16 @@ function App() {
         </>
       )}
       </div>
-      <ChatWidget />
+      <ChatWidget activeSession={view === 'viewing' ? loadedSession : undefined} />
+
+      {/* Floating TTS indicator */}
+      {(ttsAudio || sectionSummarizing) && !sectionSummaryText && (
+        <div className="tts-indicator">
+          <span className="tts-indicator__pulse" />
+          <span className="tts-indicator__title">{sectionSummarizing ? '⏳ Loading...' : `🔊 ${ttsTitle}`}</span>
+          <button className="tts-indicator__stop" onClick={handleCloseSummary}>■</button>
+        </div>
+      )}
     </div>
   )
 }

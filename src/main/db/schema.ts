@@ -99,8 +99,9 @@ export async function runMigrations(pool: Pool): Promise<void> {
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_tokens_in BIGINT DEFAULT 0`)
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_tokens_out BIGINT DEFAULT 0`)
     await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_cost NUMERIC(12,6) DEFAULT 0`)
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS language TEXT DEFAULT 'English'`)
   } catch (err) {
-    console.warn('[DB] Token columns migration skipped:', err)
+    console.warn('[DB] Migration columns skipped:', err)
   }
 
   console.log('[DB] Migrations complete')

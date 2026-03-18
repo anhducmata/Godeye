@@ -6,13 +6,36 @@ interface ChatMessage {
   timestamp: number
 }
 
-export function ChatWidget() {
+interface ActiveSession {
+  session: any
+  transcripts: any[]
+  summary: any
+}
+
+interface ChatWidgetProps {
+  activeSession?: ActiveSession | null
+}
+
+export function ChatWidget({ activeSession }: ChatWidgetProps) {
   const [isOpen, setIsOpen] = useState(false)
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [input, setInput] = useState('')
   const [loading, setLoading] = useState(false)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  const prevSessionIdRef = useRef<string | null>(null)
+
+  const isSessionMode = !!activeSession?.session?.id
+  const sessionTitle = activeSession?.session?.title || 'Session'
+
+  // Clear messages when session changes
+  useEffect(() => {
+    const currentId = activeSession?.session?.id || null
+    if (currentId !== prevSessionIdRef.current) {
+      setMessages([])
+      prevSessionIdRef.current = currentId
+    }
+  }, [activeSession?.session?.id])
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -31,16 +54,33 @@ export function ChatWidget() {
     setLoading(true)
 
     try {
-      const results = await window.meetsense?.searchKnowledge(query)
-      const answer = results && results.length > 0
-        ? results.map((r: any) => r.content || r.text || JSON.stringify(r)).join('\n\n')
-        : 'No relevant knowledge found. Try recording more sessions to build your knowledge base.'
+      if (isSessionMode) {
+        // Context-aware: chat with AI about this specific session
+        const history = messages.map(m => ({ role: m.role, content: m.content }))
+        const result = await (window as any).meetsense?.chatWithSession({
+          sessionId: activeSession!.session.id,
+          query,
+          history,
+          language: undefined // will use backend default
+        })
+        const answer = result?.success && result.answer
+          ? result.answer
+          : result?.error || 'Sorry, I couldn\'t answer that right now.'
 
-      setMessages(prev => [...prev, { role: 'assistant', content: answer, timestamp: Date.now() }])
+        setMessages(prev => [...prev, { role: 'assistant', content: answer, timestamp: Date.now() }])
+      } else {
+        // Global mode: search across all sessions
+        const results = await (window as any).meetsense?.searchKnowledge(query)
+        const answer = results && results.length > 0
+          ? results.map((r: any) => r.content || r.text || JSON.stringify(r)).join('\n\n')
+          : 'No relevant knowledge found. Try recording more sessions to build your knowledge base.'
+
+        setMessages(prev => [...prev, { role: 'assistant', content: answer, timestamp: Date.now() }])
+      }
     } catch {
       setMessages(prev => [...prev, {
         role: 'assistant',
-        content: 'Sorry, I couldn\'t search the knowledge base right now.',
+        content: 'Sorry, I couldn\'t process your request right now.',
         timestamp: Date.now()
       }])
     }
@@ -53,7 +93,7 @@ export function ChatWidget() {
       <button
         className={`chat-fab ${isOpen ? 'chat-fab--active' : ''}`}
         onClick={() => setIsOpen(!isOpen)}
-        title="Ask anything"
+        title={isSessionMode ? `Ask about ${sessionTitle}` : 'Ask anything'}
       >
         {isOpen ? '✕' : '💬'}
       </button>
@@ -62,19 +102,37 @@ export function ChatWidget() {
       {isOpen && (
         <div className="chat-panel">
           <div className="chat-panel__header">
-            <span className="chat-panel__title">🧠 Ask MeetSense</span>
-            <span className="chat-panel__subtitle">Search across all your meetings</span>
+            <span className="chat-panel__title">
+              {isSessionMode ? `💬 ${sessionTitle}` : '🧠 Ask MeetSense'}
+            </span>
+            <span className="chat-panel__subtitle">
+              {isSessionMode
+                ? 'Ask anything about this session'
+                : 'Search across all your meetings'}
+            </span>
           </div>
 
           <div className="chat-panel__messages">
             {messages.length === 0 && (
               <div className="chat-panel__empty">
-                <div style={{ fontSize: 28 }}>💡</div>
-                <p>Ask anything about your past meetings</p>
+                <div style={{ fontSize: 28 }}>{isSessionMode ? '💬' : '💡'}</div>
+                <p>{isSessionMode
+                  ? `Ask anything about "${sessionTitle}"`
+                  : 'Ask anything about your past meetings'}</p>
                 <div className="chat-panel__hints">
-                  <button onClick={() => setInput('What decisions were made this week?')}>Decisions this week?</button>
-                  <button onClick={() => setInput('Summarize the last standup')}>Last standup summary</button>
-                  <button onClick={() => setInput('What open questions remain?')}>Open questions?</button>
+                  {isSessionMode ? (
+                    <>
+                      <button onClick={() => setInput('Tóm tắt nội dung buổi này')}>Tóm tắt nội dung?</button>
+                      <button onClick={() => setInput('Những quyết định quan trọng?')}>Quyết định quan trọng?</button>
+                      <button onClick={() => setInput('Có câu hỏi nào chưa được giải quyết?')}>Câu hỏi chưa giải quyết?</button>
+                    </>
+                  ) : (
+                    <>
+                      <button onClick={() => setInput('What decisions were made this week?')}>Decisions this week?</button>
+                      <button onClick={() => setInput('Summarize the last standup')}>Last standup summary</button>
+                      <button onClick={() => setInput('What open questions remain?')}>Open questions?</button>
+                    </>
+                  )}
                 </div>
               </div>
             )}
@@ -97,7 +155,7 @@ export function ChatWidget() {
             <input
               ref={inputRef}
               type="text"
-              placeholder="Ask about your meetings..."
+              placeholder={isSessionMode ? `Ask about ${sessionTitle}...` : 'Ask about your meetings...'}
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleSend()}

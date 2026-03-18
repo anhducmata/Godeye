@@ -114,12 +114,13 @@ export async function saveSummary(sessionId: string, summary: {
   follow_ups: any[]
 }): Promise<void> {
   const pool = getPool()
+  // Upsert: delete old then insert new (no unique constraint on session_id)
+  await pool.query(`DELETE FROM summaries WHERE session_id = $1`, [sessionId])
   await pool.query(
     `INSERT INTO summaries (session_id, document_summary, statements, questions, follow_ups)
      VALUES ($1, $2, $3, $4, $5)`,
     [sessionId, summary.document_summary, JSON.stringify({ statements: summary.statements, facts: summary.facts, unclear_points: summary.unclear_points }), JSON.stringify(summary.questions), JSON.stringify(summary.follow_ups)]
   )
-  console.log(`[DB] Summary saved for session ${sessionId}`)
 }
 
 export async function getSessionTranscripts(sessionId: string): Promise<TranscriptRow[]> {
@@ -140,7 +141,7 @@ export interface SummaryRow {
   follow_ups: any[]
 }
 
-export async function getSessionSummary(sessionId: string): Promise<SummaryRow | null> {
+export async function getSessionSummary(sessionId: string): Promise<any | null> {
   const pool = getPool()
   const result = await pool.query(
     `SELECT * FROM summaries WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1`,
@@ -148,12 +149,31 @@ export async function getSessionSummary(sessionId: string): Promise<SummaryRow |
   )
   if (result.rows.length === 0) return null
   const row = result.rows[0]
-  // Parse JSON arrays if stored as strings
+
+  // The `statements` JSONB column stores: { statements: [], facts: [], unclear_points: [] }
+  let statementsData = row.statements
+  if (typeof statementsData === 'string') {
+    try { statementsData = JSON.parse(statementsData) } catch { statementsData = {} }
+  }
+
+  let questions = row.questions
+  if (typeof questions === 'string') {
+    try { questions = JSON.parse(questions) } catch { questions = [] }
+  }
+
+  let followUps = row.follow_ups
+  if (typeof followUps === 'string') {
+    try { followUps = JSON.parse(followUps) } catch { followUps = [] }
+  }
+
   return {
     ...row,
-    statements: typeof row.statements === 'string' ? JSON.parse(row.statements) : (row.statements || []),
-    questions: typeof row.questions === 'string' ? JSON.parse(row.questions) : (row.questions || []),
-    follow_ups: typeof row.follow_ups === 'string' ? JSON.parse(row.follow_ups) : (row.follow_ups || [])
+    document_summary: row.document_summary || '',
+    statements: statementsData?.statements || [],
+    facts: statementsData?.facts || [],
+    questions: Array.isArray(questions) ? questions : [],
+    unclear_points: statementsData?.unclear_points || [],
+    follow_ups: Array.isArray(followUps) ? followUps : []
   }
 }
 

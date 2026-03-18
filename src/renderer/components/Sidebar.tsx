@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useImperativeHandle, forwardRef, useRef } from 'react'
-import { Brain, Settings } from 'lucide-react'
+import { Brain, Settings, PanelLeftClose, PanelLeftOpen } from 'lucide-react'
 
 interface Session {
   id: string
@@ -21,6 +21,8 @@ interface SidebarProps {
   isProcessing: boolean
   tokenCount: number
   currentUser?: { email: string; display_name?: string } | null
+  collapsed?: boolean
+  onToggleCollapse?: () => void
 }
 
 export interface SidebarHandle {
@@ -62,7 +64,7 @@ function formatTokens(count: number): string {
   return `${count} tokens`
 }
 
-export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, onOpenAuth, onGoHome, onLogout, isRecording, isProcessing, tokenCount, currentUser }, ref) {
+export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, onOpenAuth, onGoHome, onLogout, isRecording, isProcessing, tokenCount, currentUser, collapsed, onToggleCollapse }, ref) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -137,12 +139,15 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
   }
 
   return (
-    <aside className="sidebar">
+    <aside className={`sidebar ${collapsed ? 'sidebar--collapsed' : ''}`}>
       <div className="sidebar__header">
-        <span className="sidebar__brand sidebar__brand--clickable" onClick={onGoHome}><Brain size={16} /> MeetSense</span>
+        {!collapsed && <span className="sidebar__brand sidebar__brand--clickable" onClick={onGoHome}><Brain size={16} /> MeetSense</span>}
+        <button className="sidebar__collapse" onClick={onToggleCollapse} title={collapsed ? 'Expand' : 'Collapse'}>
+          {collapsed ? <PanelLeftOpen size={14} /> : <PanelLeftClose size={14} />}
+        </button>
       </div>
 
-      <div className="sidebar__sessions">
+      {!collapsed && <div className="sidebar__sessions">
         {sessions.length === 0 && (
           <div className="sidebar__empty">
             {isRecording ? 'Recording in progress...' : 'No sessions yet. Start recording!'}
@@ -152,7 +157,11 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
           <div
             key={session.id}
             className="session-card"
-            onClick={() => onLoadSession(session.id)}
+            onClick={() => {
+              // Don't load the session that's currently being processed — data isn't saved yet
+              if (isProcessing && sessions.indexOf(session) === 0) return
+              onLoadSession(session.id)
+            }}
           >
             <div className="session-card__menu-wrap">
               <button
@@ -182,9 +191,9 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
             </div>
           </div>
         ))}
-      </div>
+      </div>}
 
-      <div className="sidebar__footer">
+      {!collapsed && <div className="sidebar__footer">
         <button className="sidebar__settings" onClick={onOpenSettings} title="Settings"><Settings size={16} /></button>
         {currentUser && (currentUser as any).total_tokens_in > 0 && (
           <span className="sidebar__tokens" title="Lifetime token usage">
@@ -199,7 +208,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
         ) : (
           <button className="sidebar__auth" onClick={onOpenAuth}>Sign In</button>
         )}
-      </div>
+      </div>}
     </aside>
   )
 })

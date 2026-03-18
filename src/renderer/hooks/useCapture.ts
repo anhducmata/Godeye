@@ -7,7 +7,7 @@ declare global {
       selectArea: () => Promise<{ x: number; y: number; width: number; height: number } | null>
       startCapture: (config: any) => Promise<{ success: boolean }>
       stopCapture: () => Promise<{ success: boolean }>
-      setApiKey: (config: { apiKey: string; provider: string; language?: string }) => Promise<{ success: boolean }>
+      setApiKey: (config: { apiKey: string; provider: string; language?: string; model?: string }) => Promise<{ success: boolean }>
       exportMarkdown: () => Promise<{ success: boolean; filePath?: string }>
       exportJSON: () => Promise<{ success: boolean; filePath?: string }>
       onCaptureFrame: (cb: (frame: { timestamp: number; dataUrl: string }) => void) => void
@@ -34,8 +34,20 @@ declare global {
       listSpeakerProfiles: () => Promise<any[]>
       createSpeakerProfile: (data: { name: string; sampleText?: string; avatarColor?: string }) => Promise<any>
       assignSpeaker: (data: { sessionId: string; diarizeLabel: string; speakerProfileId: number }) => Promise<{ success: boolean }>
-      // Search
+      // Search & Chat
+      chatWithSession: (data: { sessionId: string; query: string; history?: { role: string; content: string }[]; language?: string }) => Promise<{ success: boolean; answer?: string; error?: string }>
       searchKnowledge: (query: string, mode?: string) => Promise<any[]>
+      // Paste Memory
+      analyzePasteMemory: (data: { text: string; language?: string }) => Promise<{ success: boolean; sessionId?: string; analysis?: any; error?: string }>
+      ttsRead: (data: { text: string }) => Promise<{ success: boolean; audio?: string; error?: string }>
+      translateForTts: (data: { text: string; language?: string }) => Promise<{ success: boolean; translated?: string; error?: string }>
+      customSummarize: (data: { sessionId: string; items: string[]; prompt: string; language?: string }) => Promise<{ success: boolean; summary?: any; error?: string }>
+      // Auth
+      authRegister: (data: { email: string; password: string; displayName?: string }) => Promise<{ success: boolean; user?: any; error?: string }>
+      authLogin: (data: { email: string; password: string }) => Promise<{ success: boolean; user?: any; error?: string }>
+      // Tokens
+      onTokens: (cb: (data: number) => void) => void
+      onTokenUsage: (cb: (data: any) => void) => void
       removeAllListeners: (channel: string) => void
     }
   }
@@ -117,14 +129,23 @@ export function useCapture() {
   }, [addDebugLog])
 
   // Start capture — works without a source selected (audio-only mode)
-  const startCapture = useCallback(async () => {
+  // Accepts optional overrides to bypass stale React state for screen recording
+  const startCapture = useCallback(async (overrides?: {
+    sourceId?: string
+    enableScreenCapture?: boolean
+    cropRegion?: { x: number; y: number; width: number; height: number } | null
+  }) => {
     try {
+      const srcId = overrides?.sourceId ?? selectedSource?.id
+      const screenCapture = overrides?.enableScreenCapture ?? (options.enableScreenCapture && !!selectedSource)
+      const region = overrides?.cropRegion !== undefined ? overrides.cropRegion : cropRegion
+
       const config = {
-        sourceId: selectedSource?.id,
-        cropRegion: cropRegion || undefined,
+        sourceId: srcId,
+        cropRegion: region || undefined,
         systemAudio: options.systemAudio,
         microphone: options.microphone,
-        enableScreenCapture: options.enableScreenCapture && !!selectedSource,
+        enableScreenCapture: screenCapture && !!srcId,
         fps: 1
       }
 

@@ -49,6 +49,15 @@ contextBridge.exposeInMainWorld('meetsense', {
   createSpeakerProfile: (data: { name: string; sampleText?: string; avatarColor?: string }) => ipcRenderer.invoke('create-speaker-profile', data),
   assignSpeaker: (data: { sessionId: string; diarizeLabel: string; speakerProfileId: number }) => ipcRenderer.invoke('assign-speaker', data),
 
+  // Paste Memory
+  analyzePasteMemory: (data: { text: string; language?: string }) => ipcRenderer.invoke('analyze-paste-memory', data),
+  ttsRead: (data: { text: string }) => ipcRenderer.invoke('tts-read', data),
+  translateForTts: (data: { text: string; language?: string }) => ipcRenderer.invoke('translate-for-tts', data),
+  customSummarize: (data: { sessionId: string; items: string[]; prompt: string; language?: string }) => ipcRenderer.invoke('custom-summarize', data),
+
+  // Chat with session (context-aware)
+  chatWithSession: (data: { sessionId: string; query: string; history?: { role: string; content: string }[]; language?: string }) => ipcRenderer.invoke('chat-with-session', data),
+
   // Search
   searchKnowledge: (query: string, mode?: string) => ipcRenderer.invoke('search-knowledge', query, mode || 'fulltext'),
 
