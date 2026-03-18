@@ -42,12 +42,10 @@ let _inputTokens = 0
 let _outputTokens = 0
 let _totalCost = 0
 
-// Real OpenAI pricing per 1M tokens (approximate for gpt-5.4 family)
+// Real OpenAI pricing per 1M tokens
 const MODEL_PRICING: Record<string, { input: number; output: number }> = {
-  'gpt-5.4-mini': { input: 0.15, output: 0.60 },
-  'gpt-5.4':      { input: 2.50, output: 10.00 },
-  'gpt-4o-mini':  { input: 0.15, output: 0.60 },
-  'gpt-4o':       { input: 2.50, output: 10.00 },
+  'gpt-5.4-nano':  { input: 0.10, output: 0.40 },
+  'gpt-5.4-mini':  { input: 0.15, output: 0.60 },
 }
 
 // =============================================
@@ -402,7 +400,7 @@ export class SummaryEngine extends EventEmitter {
         'Authorization': `Bearer ${this.apiKey}`
       },
       body: JSON.stringify({
-        model: isFullDocument ? 'gpt-5.4' : 'gpt-5.4-mini',
+        model: isFullDocument ? 'gpt-5.4-mini' : 'gpt-5.4-nano',
         messages: [
           { role: 'system', content: 'You are a meeting summary assistant. Always respond with valid JSON.' },
           { role: 'user', content: prompt }
@@ -427,8 +425,8 @@ export class SummaryEngine extends EventEmitter {
       _inputTokens += inTok
       _outputTokens += outTok
       _totalTokens += inTok + outTok
-      const model = isFullDocument ? 'gpt-5.4' : 'gpt-5.4-mini'
-      const pricing = MODEL_PRICING[model] || MODEL_PRICING['gpt-5.4-mini']
+      const model = isFullDocument ? 'gpt-5.4-mini' : 'gpt-5.4-nano'
+      const pricing = MODEL_PRICING[model] || MODEL_PRICING['gpt-5.4-nano']
       _totalCost += (inTok / 1_000_000) * pricing.input + (outTok / 1_000_000) * pricing.output
       this.emit('tokens', _totalTokens)
       this.emit('token-usage', { inputTokens: _inputTokens, outputTokens: _outputTokens, totalTokens: _totalTokens, cost: _totalCost })

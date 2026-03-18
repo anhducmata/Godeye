@@ -186,7 +186,11 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
 
       <div className="sidebar__footer">
         <button className="sidebar__settings" onClick={onOpenSettings} title="Settings"><Settings size={16} /></button>
-        {tokenCount > 0 && <span className="sidebar__tokens">{formatTokens(tokenCount)}</span>}
+        {currentUser && (currentUser as any).total_tokens_in > 0 && (
+          <span className="sidebar__tokens" title="Lifetime token usage">
+            ↑{formatTokens((currentUser as any).total_tokens_in || 0)} ↓{formatTokens((currentUser as any).total_tokens_out || 0)} · ${((currentUser as any).total_cost || 0).toFixed(4)}
+          </span>
+        )}
         <span style={{ flex: 1 }} />
         {currentUser ? (
           <span className="sidebar__user-name">

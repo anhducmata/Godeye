@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './components/MermaidBlock'
 import { Sidebar, SidebarHandle } from './components/Sidebar'
 import { ChatWidget } from './components/ChatWidget'
-import { Mic, Video, Camera, Music, Film, Image, FileText, ClipboardPaste, Square, ChevronDown, Volume2 } from 'lucide-react'
+import { Mic, Video, Camera, Music, Film, Image, FileText, ClipboardPaste, Square, ChevronDown, Volume2, ArrowUp, ArrowDown, CircleDollarSign } from 'lucide-react'
 
 type AppView = 'sessions' | 'recording' | 'viewing' | 'search'
 
@@ -141,7 +141,10 @@ function App() {
   // Auto-refresh sidebar when post-meeting processing completes
   useEffect(() => {
     if (postMeetingProcessing === false) {
-      // Processing just finished — refresh sidebar to show updated title/tags
+      // Processing just finished — switch to sessions view and refresh sidebar
+      if (view === 'recording') {
+        setView('sessions')
+      }
       setTimeout(() => sidebarRef.current?.refresh(), 500)
     }
   }, [postMeetingProcessing])
@@ -168,8 +171,8 @@ function App() {
   const handleEndSession = async () => {
     stopListening()
     await stopCapture()
-    setView('sessions')
-    // Refresh sidebar after session data is saved
+    // Don't switch view — keep recording data visible during post-meeting processing
+    // The useEffect on postMeetingProcessing will switch to sessions when done
     setTimeout(() => sidebarRef.current?.refresh(), 1500)
   }
 
@@ -262,22 +265,6 @@ function App() {
         <div className="modal-overlay" onClick={() => setShowSettings(false)}>
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h2 className="modal__title">Settings</h2>
-            <div className="modal__field">
-              <label>AI Provider</label>
-              <select value={apiProvider} onChange={e => setApiProvider(e.target.value as any)}>
-                <option value="gemini">Google Gemini</option>
-                <option value="openai">OpenAI</option>
-              </select>
-            </div>
-            <div className="modal__field">
-              <label>API Key</label>
-              <input
-                type="password"
-                placeholder="Enter your API key..."
-                value={apiKey}
-                onChange={e => setApiKey(e.target.value)}
-              />
-            </div>
             <div className="modal__field">
               <label>Color Theme</label>
               <select value={colorTheme} onChange={e => setColorTheme(e.target.value)}>
@@ -721,14 +708,24 @@ function App() {
               </span>
               {tokenUsage.totalTokens > 0 && (
                 <span className="token-usage">
-                  <span className="token-usage__item">↑ {tokenUsage.inputTokens.toLocaleString()}</span>
-                  <span className="token-usage__item">↓ {tokenUsage.outputTokens.toLocaleString()}</span>
-                  <span className="token-usage__cost">${tokenUsage.cost.toFixed(4)}</span>
+                  <span className="token-usage__item token-usage__in"><ArrowUp size={12} /> {tokenUsage.inputTokens.toLocaleString()}</span>
+                  <span className="token-usage__item token-usage__out"><ArrowDown size={12} /> {tokenUsage.outputTokens.toLocaleString()}</span>
+                  <span className="token-usage__cost"><CircleDollarSign size={12} /> ${tokenUsage.cost.toFixed(4)}</span>
                 </span>
               )}
             </div>
             <div className="topbar__right">
-              <button className="btn btn--danger btn--end" onClick={handleEndSession}>⏹ End Session</button>
+              <label className="toggle-pill">
+                <input type="checkbox" checked={options.systemAudio}
+                  onChange={e => setOptions({ ...options, systemAudio: e.target.checked })} />
+                <span><Volume2 size={13} /> System</span>
+              </label>
+              <label className="toggle-pill">
+                <input type="checkbox" checked={options.microphone}
+                  onChange={e => setOptions({ ...options, microphone: e.target.checked })} />
+                <span><Mic size={13} /> Mic</span>
+              </label>
+              <button className="btn btn--danger btn--end" onClick={handleEndSession}><Square size={12} /> End Session</button>
               <button className={`btn btn--icon ${showDebug ? 'btn--active' : ''}`} onClick={() => setShowDebug(!showDebug)} title="Debug">🐛</button>
             </div>
           </header>

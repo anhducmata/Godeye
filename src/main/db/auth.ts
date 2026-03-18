@@ -18,13 +18,16 @@ export interface User {
   email: string
   display_name: string | null
   created_at: string
+  total_tokens_in?: number
+  total_tokens_out?: number
+  total_cost?: number
 }
 
 export async function registerUser(email: string, password: string, displayName?: string): Promise<User> {
   const pool = getPool()
   const passwordHash = hashPassword(password)
   const result = await pool.query(
-    `INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id, email, display_name, created_at`,
+    `INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id, email, display_name, created_at, total_tokens_in, total_tokens_out, total_cost`,
     [email.toLowerCase().trim(), passwordHash, displayName || null]
   )
   return result.rows[0]
@@ -33,20 +36,30 @@ export async function registerUser(email: string, password: string, displayName?
 export async function loginUser(email: string, password: string): Promise<User | null> {
   const pool = getPool()
   const result = await pool.query(
-    `SELECT id, email, password_hash, display_name, created_at FROM users WHERE email = $1`,
+    `SELECT id, email, password_hash, display_name, created_at, total_tokens_in, total_tokens_out, total_cost FROM users WHERE email = $1`,
     [email.toLowerCase().trim()]
   )
   if (result.rows.length === 0) return null
   const row = result.rows[0]
   if (!verifyPassword(password, row.password_hash)) return null
-  return { id: row.id, email: row.email, display_name: row.display_name, created_at: row.created_at }
+  return { id: row.id, email: row.email, display_name: row.display_name, created_at: row.created_at, total_tokens_in: Number(row.total_tokens_in || 0), total_tokens_out: Number(row.total_tokens_out || 0), total_cost: Number(row.total_cost || 0) }
 }
 
 export async function getUserById(id: number): Promise<User | null> {
   const pool = getPool()
   const result = await pool.query(
-    `SELECT id, email, display_name, created_at FROM users WHERE id = $1`,
+    `SELECT id, email, display_name, created_at, total_tokens_in, total_tokens_out, total_cost FROM users WHERE id = $1`,
     [id]
   )
-  return result.rows[0] || null
+  if (!result.rows[0]) return null
+  const row = result.rows[0]
+  return { ...row, total_tokens_in: Number(row.total_tokens_in || 0), total_tokens_out: Number(row.total_tokens_out || 0), total_cost: Number(row.total_cost || 0) }
+}
+
+export async function addUserTokens(userId: number, tokensIn: number, tokensOut: number, cost: number): Promise<void> {
+  const pool = getPool()
+  await pool.query(
+    `UPDATE users SET total_tokens_in = total_tokens_in + $2, total_tokens_out = total_tokens_out + $3, total_cost = total_cost + $4 WHERE id = $1`,
+    [userId, tokensIn, tokensOut, cost]
+  )
 }

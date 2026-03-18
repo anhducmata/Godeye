@@ -110,6 +110,9 @@ body {
   font-weight: 600;
   letter-spacing: -0.02em;
   color: var(--text);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
 .sidebar__brand--clickable {
@@ -2120,9 +2123,18 @@ body {
 
 .token-usage__item {
   white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
 }
+
+.token-usage__in { color: #1d993a; }
+.token-usage__out { color: #ff3535; }
 
 .token-usage__cost {
   color: #4ade80;
   font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
 }

@@ -16,6 +16,7 @@ import { createSpeakerProfile, listSpeakerProfiles, updateSpeakerProfile, assign
 import { uploadSessionAudio, uploadSessionTranscript, uploadSessionSummary } from '../storage/s3-client'
 import { uploadSessionToVectorStore } from '../rag/vector-store'
 import { queueFinetuneData } from '../finetune/trainer'
+import { addUserTokens } from '../db/auth'
 import { registerUser, loginUser } from '../db/auth'
 
 /**
@@ -376,7 +377,7 @@ export function initializeHandlers(window: BrowserWindow) {
               const contextText = (docContent + '\n' + statementsText).slice(0, 2000)
 
               const titleTagResult = await openai.chat.completions.create({
-                model: 'gpt-4o-mini',
+                model: 'gpt-5.4-nano',
                 temperature: 0.3,
                 max_tokens: 100,
                 messages: [{
@@ -400,6 +401,20 @@ Respond in this exact JSON format:
             } catch (err) {
               console.error('[IPC] Auto title/tag generation failed:', err)
             }
+          }
+
+          // Save lifetime token usage to user's account
+          try {
+            const tokenUsage = summaryEngine.getTokenUsage()
+            const store = (await import('electron-store')).default
+            const settings = new store()
+            const userData = settings.get('user') as any
+            if (userData?.id && tokenUsage.totalTokens > 0) {
+              await addUserTokens(userData.id, tokenUsage.inputTokens, tokenUsage.outputTokens, tokenUsage.cost)
+              console.log(`[IPC] Saved ${tokenUsage.totalTokens} tokens ($${tokenUsage.cost.toFixed(4)}) to user ${userData.id}`)
+            }
+          } catch (err) {
+            console.warn('[IPC] Failed to save lifetime tokens:', err)
           }
 
           safeSend('post-meeting-status', { processing: false })

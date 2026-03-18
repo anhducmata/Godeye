@@ -94,5 +94,14 @@ export async function runMigrations(pool: Pool): Promise<void> {
     CREATE INDEX IF NOT EXISTS idx_session_speakers_session ON session_speakers(session_id);
   `)
 
+  // Add lifetime token tracking columns to users (safe to re-run)
+  try {
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_tokens_in BIGINT DEFAULT 0`)
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_tokens_out BIGINT DEFAULT 0`)
+    await pool.query(`ALTER TABLE users ADD COLUMN IF NOT EXISTS total_cost NUMERIC(12,6) DEFAULT 0`)
+  } catch (err) {
+    console.warn('[DB] Token columns migration skipped:', err)
+  }
+
   console.log('[DB] Migrations complete')
 }

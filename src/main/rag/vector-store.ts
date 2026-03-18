@@ -60,7 +60,7 @@ export async function searchKnowledge(query: string, maxResults = 5): Promise<Ar
     const vsId = await ensureVectorStore()
 
     const response = await client.responses.create({
-      model: 'gpt-4o-mini',
+      model: 'gpt-5.4-nano',
       input: query,
       tools: [{
         type: 'file_search' as any,
