@@ -15,9 +15,11 @@ interface SidebarProps {
   onOpenSettings: () => void
   onOpenAuth: () => void
   onGoHome: () => void
+  onLogout?: () => void
   isRecording: boolean
   isProcessing: boolean
   tokenCount: number
+  currentUser?: { email: string; display_name?: string } | null
 }
 
 export interface SidebarHandle {
@@ -59,7 +61,7 @@ function formatTokens(count: number): string {
   return `${count} tokens`
 }
 
-export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, onOpenAuth, onGoHome, isRecording, isProcessing, tokenCount }, ref) {
+export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar({ onLoadSession, onOpenSettings, onOpenAuth, onGoHome, onLogout, isRecording, isProcessing, tokenCount, currentUser }, ref) {
   const [sessions, setSessions] = useState<Session[]>([])
   const [menuSessionId, setMenuSessionId] = useState<string | null>(null)
   const timerRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -184,7 +186,14 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
       <div className="sidebar__footer">
         <button className="sidebar__settings" onClick={onOpenSettings} title="Settings">⚙️</button>
         {tokenCount > 0 && <span className="sidebar__tokens">{formatTokens(tokenCount)}</span>}
-        <button className="sidebar__auth" onClick={onOpenAuth}>Sign In</button>
+        {currentUser ? (
+          <div className="sidebar__user">
+            <span className="sidebar__user-name">{currentUser.display_name || currentUser.email}</span>
+            <button className="sidebar__logout" onClick={onLogout}>Sign Out</button>
+          </div>
+        ) : (
+          <button className="sidebar__auth" onClick={onOpenAuth}>Sign In</button>
+        )}
       </div>
     </aside>
   )

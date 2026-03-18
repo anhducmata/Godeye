@@ -6,6 +6,16 @@ export async function runMigrations(pool: Pool): Promise<void> {
   await pool.query(`CREATE EXTENSION IF NOT EXISTS unaccent`)
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id SERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      display_name TEXT,
+      created_at TIMESTAMPTZ DEFAULT now()
+    )
+  `)
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS sessions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
       title TEXT,

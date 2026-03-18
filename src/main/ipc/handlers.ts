@@ -16,6 +16,7 @@ import { createSpeakerProfile, listSpeakerProfiles, updateSpeakerProfile, assign
 import { uploadSessionAudio, uploadSessionTranscript, uploadSessionSummary } from '../storage/s3-client'
 import { uploadSessionToVectorStore } from '../rag/vector-store'
 import { queueFinetuneData } from '../finetune/trainer'
+import { registerUser, loginUser } from '../db/auth'
 
 /**
  * Central IPC handler registry.
@@ -570,6 +571,35 @@ Respond in this exact JSON format:
     } catch (err) {
       console.error('[Search] Failed:', err)
       return []
+    }
+  })
+
+  // --- Auth handlers ---
+  ipcMain.handle('auth-register', async (_event, data: { email: string; password: string; displayName?: string }) => {
+    try {
+      const user = await registerUser(data.email, data.password, data.displayName)
+      console.log(`[Auth] User registered: ${user.email}`)
+      return { success: true, user }
+    } catch (err: any) {
+      if (err.code === '23505') {
+        return { success: false, error: 'Email already registered' }
+      }
+      console.error('[Auth] Register failed:', err)
+      return { success: false, error: 'Registration failed' }
+    }
+  })
+
+  ipcMain.handle('auth-login', async (_event, data: { email: string; password: string }) => {
+    try {
+      const user = await loginUser(data.email, data.password)
+      if (!user) {
+        return { success: false, error: 'Invalid email or password' }
+      }
+      console.log(`[Auth] User logged in: ${user.email}`)
+      return { success: true, user }
+    } catch (err) {
+      console.error('[Auth] Login failed:', err)
+      return { success: false, error: 'Login failed' }
     }
   })
 }

@@ -90,6 +90,15 @@ function App() {
   const [searchMode, setSearchMode] = useState<'fulltext' | 'exact'>('fulltext')
   const [newSessionType, setNewSessionType] = useState<string>('record-audio')
   const [showNewDropdown, setShowNewDropdown] = useState(false)
+  const [authEmail, setAuthEmail] = useState('')
+  const [authPassword, setAuthPassword] = useState('')
+  const [authConfirm, setAuthConfirm] = useState('')
+  const [authName, setAuthName] = useState('')
+  const [authError, setAuthError] = useState('')
+  const [currentUser, setCurrentUser] = useState<any>(() => {
+    const saved = localStorage.getItem('meetsense-user')
+    return saved ? JSON.parse(saved) : null
+  })
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const sidebarRef = useRef<SidebarHandle>(null)
@@ -181,6 +190,48 @@ function App() {
     setShowSettings(false)
   }
 
+  const handleAuth = async () => {
+    setAuthError('')
+    if (!authEmail || !authPassword) {
+      setAuthError('Email and password are required')
+      return
+    }
+    if (authTab === 'register') {
+      if (authPassword !== authConfirm) {
+        setAuthError('Passwords do not match')
+        return
+      }
+      if (authPassword.length < 6) {
+        setAuthError('Password must be at least 6 characters')
+        return
+      }
+      const result = await window.meetsense?.authRegister({ email: authEmail, password: authPassword, displayName: authName })
+      if (result?.success) {
+        setCurrentUser(result.user)
+        localStorage.setItem('meetsense-user', JSON.stringify(result.user))
+        setShowAuth(false)
+        setAuthEmail(''); setAuthPassword(''); setAuthConfirm(''); setAuthName('')
+      } else {
+        setAuthError(result?.error || 'Registration failed')
+      }
+    } else {
+      const result = await window.meetsense?.authLogin({ email: authEmail, password: authPassword })
+      if (result?.success) {
+        setCurrentUser(result.user)
+        localStorage.setItem('meetsense-user', JSON.stringify(result.user))
+        setShowAuth(false)
+        setAuthEmail(''); setAuthPassword('')
+      } else {
+        setAuthError(result?.error || 'Invalid email or password')
+      }
+    }
+  }
+
+  const handleLogout = () => {
+    setCurrentUser(null)
+    localStorage.removeItem('meetsense-user')
+  }
+
   const handleSearch = (query: string, mode?: 'fulltext' | 'exact') => {
     setSearchQuery(query)
     const m = mode || searchMode
@@ -202,7 +253,7 @@ function App() {
 
   return (
     <div className="app-layout">
-      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} onOpenAuth={() => setShowAuth(true)} onGoHome={() => { setView('sessions'); setLoadedSession(null) }} isRecording={state === 'capturing'} isProcessing={!!postMeetingProcessing} tokenCount={tokenCount} />
+      <Sidebar ref={sidebarRef} onLoadSession={handleLoadSession} onOpenSettings={() => setShowSettings(true)} onOpenAuth={() => setShowAuth(true)} onLogout={handleLogout} onGoHome={() => { setView('sessions'); setLoadedSession(null) }} isRecording={state === 'capturing'} isProcessing={!!postMeetingProcessing} tokenCount={tokenCount} currentUser={currentUser} />
       <div className="app">
 
       {/* Settings Modal */}
@@ -248,26 +299,33 @@ function App() {
           <div className="modal" onClick={e => e.stopPropagation()}>
             <h2 className="modal__title">{authTab === 'signin' ? 'Sign In' : 'Create Account'}</h2>
             <div className="auth-tabs">
-              <button className={`auth-tab ${authTab === 'signin' ? 'auth-tab--active' : ''}`} onClick={() => setAuthTab('signin')}>Sign In</button>
-              <button className={`auth-tab ${authTab === 'register' ? 'auth-tab--active' : ''}`} onClick={() => setAuthTab('register')}>Register</button>
+              <button className={`auth-tab ${authTab === 'signin' ? 'auth-tab--active' : ''}`} onClick={() => { setAuthTab('signin'); setAuthError('') }}>Sign In</button>
+              <button className={`auth-tab ${authTab === 'register' ? 'auth-tab--active' : ''}`} onClick={() => { setAuthTab('register'); setAuthError('') }}>Register</button>
             </div>
+            {authError && <div className="auth-error">{authError}</div>}
+            {authTab === 'register' && (
+              <div className="modal__field">
+                <label>Display Name</label>
+                <input type="text" placeholder="Your name" value={authName} onChange={e => setAuthName(e.target.value)} />
+              </div>
+            )}
             <div className="modal__field">
               <label>Email</label>
-              <input type="email" placeholder="you@example.com" />
+              <input type="email" placeholder="you@example.com" value={authEmail} onChange={e => setAuthEmail(e.target.value)} />
             </div>
             <div className="modal__field">
               <label>Password</label>
-              <input type="password" placeholder="••••••••" />
+              <input type="password" placeholder="••••••••" value={authPassword} onChange={e => setAuthPassword(e.target.value)} />
             </div>
             {authTab === 'register' && (
               <div className="modal__field">
                 <label>Confirm Password</label>
-                <input type="password" placeholder="••••••••" />
+                <input type="password" placeholder="••••••••" value={authConfirm} onChange={e => setAuthConfirm(e.target.value)} />
               </div>
             )}
             <div className="modal__actions">
               <button className="btn" onClick={() => setShowAuth(false)}>Cancel</button>
-              <button className="btn btn--primary">{authTab === 'signin' ? 'Sign In' : 'Register'}</button>
+              <button className="btn btn--primary" onClick={handleAuth}>{authTab === 'signin' ? 'Sign In' : 'Register'}</button>
             </div>
           </div>
         </div>

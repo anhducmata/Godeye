@@ -51,6 +51,10 @@ contextBridge.exposeInMainWorld('meetsense', {
   // Search
   searchKnowledge: (query: string, mode?: string) => ipcRenderer.invoke('search-knowledge', query, mode || 'fulltext'),
 
+  // Auth
+  authRegister: (data: { email: string; password: string; displayName?: string }) => ipcRenderer.invoke('auth-register', data),
+  authLogin: (data: { email: string; password: string }) => ipcRenderer.invoke('auth-login', data),
+
   // Cleanup
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel)
 })
