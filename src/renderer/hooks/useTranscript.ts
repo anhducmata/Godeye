@@ -41,6 +41,7 @@ export function useTranscript() {
   const [summary, setSummary] = useState<SummaryData | null>(null)
   const [postMeetingProcessing, setPostMeetingProcessing] = useState(false)
   const [tokenCount, setTokenCount] = useState(0)
+  const [tokenUsage, setTokenUsage] = useState<{ inputTokens: number; outputTokens: number; totalTokens: number; cost: number }>({ inputTokens: 0, outputTokens: 0, totalTokens: 0, cost: 0 })
 
   const recognitionRef = useRef<any>(null)
   const isListeningRef = useRef(false)
@@ -97,6 +98,10 @@ export function useTranscript() {
     // @ts-ignore
     window.meetsense.onTokens?.((total: number) => {
       setTokenCount(total)
+    })
+    // @ts-ignore
+    window.meetsense.onTokenUsage?.((usage: any) => {
+      setTokenUsage(usage)
     })
     // @ts-ignore
     window.meetsense.onPostMeetingStatus((data: { processing: boolean }) => {
@@ -207,7 +212,7 @@ export function useTranscript() {
   }, [])
 
   return {
-    transcripts, interimTranscript, interimWhisperTranscript, visualNotes, summary, postMeetingProcessing, tokenCount,
+    transcripts, interimTranscript, interimWhisperTranscript, visualNotes, summary, postMeetingProcessing, tokenCount, tokenUsage,
     startListening, stopListening, clearAll
   }
 }

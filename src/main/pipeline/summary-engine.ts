@@ -38,6 +38,17 @@ export interface SummaryState {
 }
 
 let _totalTokens = 0
+let _inputTokens = 0
+let _outputTokens = 0
+let _totalCost = 0
+
+// Real OpenAI pricing per 1M tokens (approximate for gpt-5.4 family)
+const MODEL_PRICING: Record<string, { input: number; output: number }> = {
+  'gpt-5.4-mini': { input: 0.15, output: 0.60 },
+  'gpt-5.4':      { input: 2.50, output: 10.00 },
+  'gpt-4o-mini':  { input: 0.15, output: 0.60 },
+  'gpt-4o':       { input: 2.50, output: 10.00 },
+}
 
 // =============================================
 // PROMPT: Extract new items from recent transcript
@@ -410,9 +421,17 @@ export class SummaryEngine extends EventEmitter {
 
     const data = await response.json()
     const content = data.choices?.[0]?.message?.content
-    if (data.usage?.total_tokens) {
-      _totalTokens += data.usage.total_tokens
+    if (data.usage) {
+      const inTok = data.usage.prompt_tokens || 0
+      const outTok = data.usage.completion_tokens || 0
+      _inputTokens += inTok
+      _outputTokens += outTok
+      _totalTokens += inTok + outTok
+      const model = isFullDocument ? 'gpt-5.4' : 'gpt-5.4-mini'
+      const pricing = MODEL_PRICING[model] || MODEL_PRICING['gpt-5.4-mini']
+      _totalCost += (inTok / 1_000_000) * pricing.input + (outTok / 1_000_000) * pricing.output
       this.emit('tokens', _totalTokens)
+      this.emit('token-usage', { inputTokens: _inputTokens, outputTokens: _outputTokens, totalTokens: _totalTokens, cost: _totalCost })
     }
     if (!content) return null
     
@@ -443,9 +462,15 @@ export class SummaryEngine extends EventEmitter {
 
     const data = await response.json()
     const content = data.candidates?.[0]?.content?.parts?.[0]?.text
-    if (data.usageMetadata?.totalTokenCount) {
-      _totalTokens += data.usageMetadata.totalTokenCount
+    if (data.usageMetadata) {
+      const inTok = data.usageMetadata.promptTokenCount || 0
+      const outTok = data.usageMetadata.candidatesTokenCount || 0
+      _inputTokens += inTok
+      _outputTokens += outTok
+      _totalTokens += inTok + outTok
+      // Gemini is free tier — no cost
       this.emit('tokens', _totalTokens)
+      this.emit('token-usage', { inputTokens: _inputTokens, outputTokens: _outputTokens, totalTokens: _totalTokens, cost: _totalCost })
     }
     if (!content) return null
 
@@ -465,6 +490,10 @@ export class SummaryEngine extends EventEmitter {
     return _totalTokens
   }
 
+  getTokenUsage() {
+    return { inputTokens: _inputTokens, outputTokens: _outputTokens, totalTokens: _totalTokens, cost: _totalCost }
+  }
+
   reset() {
     this.buffer = []
     this.summaryState = null
@@ -472,5 +501,9 @@ export class SummaryEngine extends EventEmitter {
     this.lastExtractedEntryCount = 0
     this.lastCompressionTime = 0
     this.lastDocumentTime = 0
+    _inputTokens = 0
+    _outputTokens = 0
+    _totalTokens = 0
+    _totalCost = 0
   }
 }

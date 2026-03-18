@@ -2103,3 +2103,26 @@ body {
 .sidebar__logout:hover {
   color: var(--red, #ef4444);
 }
+
+/* Token Usage Display */
+.token-usage {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  margin-left: 12px;
+  padding: 3px 10px;
+  background: rgba(255,255,255,0.04);
+  border-radius: 6px;
+  font-size: 11px;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  color: var(--text-3);
+}
+
+.token-usage__item {
+  white-space: nowrap;
+}
+
+.token-usage__cost {
+  color: #4ade80;
+  font-weight: 600;
+}

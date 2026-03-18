@@ -70,7 +70,7 @@ function App() {
     startCapture, stopCapture
   } = useCapture()
 
-  const { transcripts, interimTranscript, interimWhisperTranscript, summary, postMeetingProcessing, tokenCount, clearAll, startListening, stopListening } = useTranscript()
+  const { transcripts, interimTranscript, interimWhisperTranscript, summary, postMeetingProcessing, tokenCount, tokenUsage, clearAll, startListening, stopListening } = useTranscript()
 
   const [view, setView] = useState<AppView>('sessions')
   const [loadedSession, setLoadedSession] = useState<LoadedSession | null>(null)
@@ -427,12 +427,7 @@ function App() {
               </div>
             </div>
 
-            {postMeetingProcessing && (
-              <div className="processing-banner">
-                <div className="processing-banner__spinner" />
-                <span>Processing...</span>
-              </div>
-            )}
+
           </main>
         </>
       )}
@@ -724,6 +719,13 @@ function App() {
                 <span className="topbar__dot"></span>
                 REC {formatTime(elapsed)}
               </span>
+              {tokenUsage.totalTokens > 0 && (
+                <span className="token-usage">
+                  <span className="token-usage__item">↑ {tokenUsage.inputTokens.toLocaleString()}</span>
+                  <span className="token-usage__item">↓ {tokenUsage.outputTokens.toLocaleString()}</span>
+                  <span className="token-usage__cost">${tokenUsage.cost.toFixed(4)}</span>
+                </span>
+              )}
             </div>
             <div className="topbar__right">
               <button className="btn btn--danger btn--end" onClick={handleEndSession}>⏹ End Session</button>
