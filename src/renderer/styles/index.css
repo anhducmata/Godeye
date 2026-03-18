@@ -1941,3 +1941,95 @@ body {
 
 .session-card:hover .session-card__delete { opacity: 1; }
 .session-card__delete:hover { color: var(--red); }
+
+/* ================================================
+   SPLIT BUTTON DROPDOWN
+   ================================================ */
+.btn-split {
+  position: relative;
+  display: inline-flex;
+  border-radius: var(--radius-sm);
+  overflow: visible;
+}
+
+.btn-split__main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 10px 18px;
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s;
+  white-space: nowrap;
+}
+
+.btn-split__main:hover {
+  filter: brightness(1.1);
+}
+
+.btn-split__toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 10px;
+  background: var(--accent);
+  color: rgba(255,255,255,0.7);
+  border: none;
+  border-left: 1px solid rgba(255,255,255,0.15);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  cursor: pointer;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.btn-split__toggle:hover {
+  color: #fff;
+  filter: brightness(1.1);
+}
+
+.btn-split__dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  min-width: 180px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: 0 8px 24px rgba(0,0,0,0.3);
+  z-index: 100;
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  animation: fadeIn 0.15s ease-out;
+}
+
+.btn-split__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: none;
+  border: none;
+  border-radius: 4px;
+  color: var(--text-2);
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 0.1s;
+}
+
+.btn-split__option:hover {
+  background: rgba(255,255,255,0.06);
+  color: var(--text-1);
+}
+
+.btn-split__option--active {
+  background: rgba(59, 130, 246, 0.1);
+  color: var(--accent);
+}
+

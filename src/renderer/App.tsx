@@ -88,6 +88,8 @@ function App() {
   const [searchResults, setSearchResults] = useState<any[] | null>(null)
   const [searching, setSearching] = useState(false)
   const [searchMode, setSearchMode] = useState<'fulltext' | 'exact'>('fulltext')
+  const [newSessionType, setNewSessionType] = useState<string>('record-audio')
+  const [showNewDropdown, setShowNewDropdown] = useState(false)
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const sidebarRef = useRef<SidebarHandle>(null)
@@ -133,6 +135,14 @@ function App() {
       setTimeout(() => sidebarRef.current?.refresh(), 500)
     }
   }, [postMeetingProcessing])
+
+  // Close new session dropdown on click outside
+  useEffect(() => {
+    if (!showNewDropdown) return
+    const handleClick = () => setShowNewDropdown(false)
+    document.addEventListener('click', handleClick)
+    return () => document.removeEventListener('click', handleClick)
+  }, [showNewDropdown])
 
   const handleNewSession = async () => {
     await window.meetsense?.setApiKey({ apiKey, provider: apiProvider, language })
@@ -292,36 +302,69 @@ function App() {
             </div>
 
             <div className="sessions-view__actions">
-              <div className="new-session-controls">
-                <label className="toggle-pill">
-                  <input type="checkbox" checked={options.systemAudio}
-                    onChange={e => setOptions({ ...options, systemAudio: e.target.checked })} />
-                  <span>🔊 System</span>
-                </label>
-                <label className="toggle-pill">
-                  <input type="checkbox" checked={options.microphone}
-                    onChange={e => setOptions({ ...options, microphone: e.target.checked })} />
-                  <span>🎤 Mic</span>
-                </label>
-                <select
-                  className="lang-select"
-                  value={language}
-                  onChange={(e) => setLanguage(e.target.value)}
-                >
-                  <option value="English">English</option>
-                  <option value="Vietnamese">Vietnamese</option>
-                  <option value="Spanish">Spanish</option>
-                  <option value="French">French</option>
-                  <option value="German">German</option>
-                  <option value="Japanese">Japanese</option>
-                  <option value="Korean">Korean</option>
-                  <option value="Chinese (Simplified)">Chinese</option>
-                </select>
+              {(newSessionType === 'record-audio' || newSessionType === 'record-video') && (
+                <div className="new-session-controls">
+                  <label className="toggle-pill">
+                    <input type="checkbox" checked={options.systemAudio}
+                      onChange={e => setOptions({ ...options, systemAudio: e.target.checked })} />
+                    <span>🔊 System</span>
+                  </label>
+                  <label className="toggle-pill">
+                    <input type="checkbox" checked={options.microphone}
+                      onChange={e => setOptions({ ...options, microphone: e.target.checked })} />
+                    <span>🎤 Mic</span>
+                  </label>
+                  <select
+                    className="lang-select"
+                    value={language}
+                    onChange={(e) => setLanguage(e.target.value)}
+                  >
+                    <option value="English">English</option>
+                    <option value="Vietnamese">Vietnamese</option>
+                    <option value="Spanish">Spanish</option>
+                    <option value="French">French</option>
+                    <option value="German">German</option>
+                    <option value="Japanese">Japanese</option>
+                    <option value="Korean">Korean</option>
+                    <option value="Chinese (Simplified)">Chinese</option>
+                  </select>
+                </div>
+              )}
+              <div className="btn-split">
+                <button className="btn-split__main" onClick={handleNewSession}>
+                  {newSessionType === 'record-audio' && '🎙️ Record Audio'}
+                  {newSessionType === 'upload-image' && '🖼️ Upload Image'}
+                  {newSessionType === 'upload-audio' && '🎵 Upload Audio'}
+                  {newSessionType === 'upload-video' && '🎬 Upload Video'}
+                  {newSessionType === 'record-video' && '📹 Record Video'}
+                  {newSessionType === 'upload-text' && '📄 Upload Text'}
+                  {newSessionType === 'paste-memory' && '📋 Paste Memory'}
+                </button>
+                <button className="btn-split__toggle" onClick={() => setShowNewDropdown(!showNewDropdown)}>
+                  ▾
+                </button>
+                {showNewDropdown && (
+                  <div className="btn-split__dropdown">
+                    {[
+                      { id: 'record-audio', icon: '🎙️', label: 'Record Audio' },
+                      { id: 'record-video', icon: '📹', label: 'Record Video' },
+                      { id: 'upload-image', icon: '🖼️', label: 'Upload Image' },
+                      { id: 'upload-audio', icon: '🎵', label: 'Upload Audio' },
+                      { id: 'upload-video', icon: '🎬', label: 'Upload Video' },
+                      { id: 'upload-text', icon: '📄', label: 'Upload Text' },
+                      { id: 'paste-memory', icon: '📋', label: 'Paste Memory' },
+                    ].map(opt => (
+                      <button
+                        key={opt.id}
+                        className={`btn-split__option ${newSessionType === opt.id ? 'btn-split__option--active' : ''}`}
+                        onClick={() => { setNewSessionType(opt.id); setShowNewDropdown(false) }}
+                      >
+                        <span>{opt.icon}</span> {opt.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
-              <button className="btn-new-session" onClick={handleNewSession}>
-                <span className="btn-new-session__icon">+</span>
-                New Session
-              </button>
             </div>
 
             {postMeetingProcessing && (
