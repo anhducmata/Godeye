@@ -34,8 +34,8 @@ declare global {
       listSpeakerProfiles: () => Promise<any[]>
       createSpeakerProfile: (data: { name: string; sampleText?: string; avatarColor?: string }) => Promise<any>
       assignSpeaker: (data: { sessionId: string; diarizeLabel: string; speakerProfileId: number }) => Promise<{ success: boolean }>
-      // RAG
-      searchKnowledge: (query: string) => Promise<any[]>
+      // Search
+      searchKnowledge: (query: string, mode?: string) => Promise<any[]>
       removeAllListeners: (channel: string) => void
     }
   }

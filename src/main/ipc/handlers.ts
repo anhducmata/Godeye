@@ -14,7 +14,7 @@ import { createSession, updateSession, listSessions, getSession, deleteSession, 
 import { createTag, listTags, deleteTag, tagSession, untagSession, getSessionTags } from '../db/tags'
 import { createSpeakerProfile, listSpeakerProfiles, updateSpeakerProfile, assignSpeakerToSession, getSessionSpeakers } from '../db/speakers'
 import { uploadSessionAudio, uploadSessionTranscript, uploadSessionSummary } from '../storage/s3-client'
-import { uploadSessionToVectorStore, searchKnowledge } from '../rag/vector-store'
+import { uploadSessionToVectorStore } from '../rag/vector-store'
 import { queueFinetuneData } from '../finetune/trainer'
 
 /**
@@ -508,7 +508,7 @@ Respond in this exact JSON format:
   })
 
   // --- Search handlers ---
-  ipcMain.handle('search-knowledge', async (_event, query: string) => {
+  ipcMain.handle('search-knowledge', async (_event, query: string, mode: string = 'fulltext') => {
     try {
       const pool = (await import('../db/client')).getPool()
 
@@ -533,22 +533,44 @@ Respond in this exact JSON format:
         }))
       }
 
-      // Full-text search on transcripts + session titles
+      // Exact search: case-sensitive LIKE
+      if (mode === 'exact') {
+        const pattern = `%${query}%`
+        const res = await pool.query(`
+          SELECT t.session_id, s.title as session_title, t.text, t.speaker, t.start_sec
+          FROM transcripts t
+          JOIN sessions s ON s.id = t.session_id
+          WHERE t.text LIKE $1
+          ORDER BY s.created_at DESC, t.id
+          LIMIT 50
+        `, [pattern])
+        return res.rows.map((r: any) => ({
+          session_id: r.session_id,
+          session_title: r.session_title || 'Untitled Session',
+          text: r.text || '',
+          content: r.text || '',
+          speaker: r.speaker || '',
+          start_sec: r.start_sec || 0
+        }))
+      }
+
+      // Full-text search: case-insensitive ILIKE on transcripts + session titles
       const pattern = `%${query}%`
       const res = await pool.query(`
-        SELECT DISTINCT ON (t.session_id)
-          t.session_id, s.title as session_title, t.text
+        SELECT t.session_id, s.title as session_title, t.text, t.speaker, t.start_sec
         FROM transcripts t
         JOIN sessions s ON s.id = t.session_id
         WHERE t.text ILIKE $1 OR s.title ILIKE $1
-        ORDER BY t.session_id, t.id DESC
-        LIMIT 20
+        ORDER BY s.created_at DESC, t.id
+        LIMIT 50
       `, [pattern])
       return res.rows.map((r: any) => ({
         session_id: r.session_id,
         session_title: r.session_title || 'Untitled Session',
         text: r.text || '',
-        content: r.text || ''
+        content: r.text || '',
+        speaker: r.speaker || '',
+        start_sec: r.start_sec || 0
       }))
     } catch (err) {
       console.error('[Search] Failed:', err)

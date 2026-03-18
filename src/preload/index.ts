@@ -48,8 +48,8 @@ contextBridge.exposeInMainWorld('meetsense', {
   createSpeakerProfile: (data: { name: string; sampleText?: string; avatarColor?: string }) => ipcRenderer.invoke('create-speaker-profile', data),
   assignSpeaker: (data: { sessionId: string; diarizeLabel: string; speakerProfileId: number }) => ipcRenderer.invoke('assign-speaker', data),
 
-  // RAG Knowledge Search
-  searchKnowledge: (query: string) => ipcRenderer.invoke('search-knowledge', query),
+  // Search
+  searchKnowledge: (query: string, mode?: string) => ipcRenderer.invoke('search-knowledge', query, mode || 'fulltext'),
 
   // Cleanup
   removeAllListeners: (channel: string) => ipcRenderer.removeAllListeners(channel)

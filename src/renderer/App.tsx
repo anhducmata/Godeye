@@ -87,6 +87,7 @@ function App() {
   const [searchQuery, setSearchQuery] = useState('')
   const [searchResults, setSearchResults] = useState<any[] | null>(null)
   const [searching, setSearching] = useState(false)
+  const [searchMode, setSearchMode] = useState<'fulltext' | 'exact'>('fulltext')
   const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const sidebarRef = useRef<SidebarHandle>(null)
@@ -170,8 +171,9 @@ function App() {
     setShowSettings(false)
   }
 
-  const handleSearch = (query: string) => {
+  const handleSearch = (query: string, mode?: 'fulltext' | 'exact') => {
     setSearchQuery(query)
+    const m = mode || searchMode
     if (searchTimeoutRef.current) clearTimeout(searchTimeoutRef.current)
     if (!query.trim()) { setSearchResults(null); setView('sessions'); return }
     setView('search')
@@ -179,7 +181,7 @@ function App() {
     searchTimeoutRef.current = setTimeout(async () => {
       setSearching(true)
       try {
-        const results = await window.meetsense?.searchKnowledge(query)
+        const results = await window.meetsense?.searchKnowledge(query, m)
         setSearchResults(results || [])
       } catch {
         setSearchResults([])
@@ -359,6 +361,10 @@ function App() {
               <h2 className="search-page__title">
                 {searching ? 'Searching...' : searchResults ? `${searchResults.length} result${searchResults.length !== 1 ? 's' : ''} for "${searchQuery}"` : ''}
               </h2>
+              <div className="search-page__modes">
+                <button className={`search-page__mode ${searchMode === 'fulltext' ? 'search-page__mode--active' : ''}`} onClick={() => { setSearchMode('fulltext'); if (searchQuery) handleSearch(searchQuery, 'fulltext') }}>Full Text</button>
+                <button className={`search-page__mode ${searchMode === 'exact' ? 'search-page__mode--active' : ''}`} onClick={() => { setSearchMode('exact'); if (searchQuery) handleSearch(searchQuery, 'exact') }}>Exact Match</button>
+              </div>
             </div>
 
             {searching && (
@@ -372,32 +378,39 @@ function App() {
               <div className="search-page__empty">
                 <div className="empty__icon">🔍</div>
                 <p>No results found for "{searchQuery}"</p>
-                <p className="search-page__hint">Try different keywords or search by tag</p>
+                <p className="search-page__hint">Try different keywords or search by tag (e.g. #meeting)</p>
               </div>
             )}
 
             {!searching && searchResults && searchResults.length > 0 && (
               <div className="search-page__results">
                 {searchResults.map((r: any, i: number) => {
-                  const text = (r.content || r.text || '').slice(0, 300)
+                  const text = (r.content || r.text || '')
                   const query = searchQuery.toLowerCase()
-                  const idx = text.toLowerCase().indexOf(query)
+                  // Highlight ALL occurrences
+                  const highlighted = text.replace(
+                    new RegExp(`(${searchQuery.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')})`, 'gi'),
+                    '<mark>$1</mark>'
+                  )
                   return (
                     <div key={i} className="search-page__item" onClick={() => {
                       if (r.session_id) handleLoadSession(r.session_id)
                       setSearchQuery(''); setSearchResults(null)
                     }}>
-                      {r.session_title && (
-                        <div className="search-page__item-session">
-                          <span>📝</span>
-                          {r.session_title}
-                        </div>
-                      )}
-                      <div className="search-page__item-text" dangerouslySetInnerHTML={{
-                        __html: idx >= 0
-                          ? text.slice(0, idx) + '<mark>' + text.slice(idx, idx + query.length) + '</mark>' + text.slice(idx + query.length)
-                          : text
-                      }} />
+                      <div className="search-page__item-header">
+                        {r.session_title && (
+                          <div className="search-page__item-session">
+                            <span>📝</span>
+                            {r.session_title}
+                          </div>
+                        )}
+                        {r.speaker && (
+                          <span className="search-page__item-speaker">
+                            {r.speaker.replace(/SPEAKER_(\d+)/g, (_: string, n: string) => `Person ${parseInt(n) + 1}`)}
+                          </span>
+                        )}
+                      </div>
+                      <div className="search-page__item-text" dangerouslySetInnerHTML={{ __html: highlighted }} />
                     </div>
                   )
                 })}
