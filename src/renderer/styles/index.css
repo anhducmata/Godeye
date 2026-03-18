@@ -418,7 +418,7 @@ body {
   padding: 8px 12px;
   border-top: 1px solid var(--border);
   display: flex;
-  gap: 4px;
+  gap: 8px;
   align-items: center;
 }
 

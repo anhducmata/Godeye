@@ -77,6 +77,8 @@ export async function deleteSession(id: string): Promise<void> {
   const pool = getPool()
   // Delete related rows first (foreign key constraints)
   await pool.query(`DELETE FROM session_tags WHERE session_id = $1`, [id])
+  await pool.query(`DELETE FROM session_speakers WHERE session_id = $1`, [id])
+  await pool.query(`DELETE FROM finetune_queue WHERE session_id = $1`, [id])
   await pool.query(`DELETE FROM transcripts WHERE session_id = $1`, [id])
   await pool.query(`DELETE FROM summaries WHERE session_id = $1`, [id])
   await pool.query(`DELETE FROM sessions WHERE id = $1`, [id])
