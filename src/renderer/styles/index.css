@@ -1256,8 +1256,8 @@ body {
   display: flex;
   flex-direction: column;
   gap: 3px;
-  padding-left: 12px;
-  border-left: 1.5px solid var(--border-lit);
+  padding-left: 0;
+  counter-reset: timeline;
 }
 
 .mindmap__label {
@@ -1270,14 +1270,35 @@ body {
 }
 
 .mindmap__leaf {
-  padding: 5px 8px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
+  padding: 6px 8px 6px 28px;
+  background: none;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  border-radius: 0;
   font-size: 10px;
   line-height: 1.5;
   color: var(--text-2);
   animation: fadeIn 0.2s ease-out;
+  position: relative;
+  counter-increment: timeline;
+}
+
+.mindmap__leaf::before {
+  content: counter(timeline);
+  position: absolute;
+  left: 0;
+  top: 6px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  border: 1px solid var(--border-lit);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 600;
+  color: var(--text-3);
 }
 
 .mindmap__leaf--action {

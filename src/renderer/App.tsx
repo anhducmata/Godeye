@@ -515,7 +515,7 @@ function App() {
                       <div className="mindmap">
                         {loadedSession.summary.statements?.length > 0 ? (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">💬 Statements & Facts</div>
+                            <div className="mindmap__label">💬 Statements, Facts & Questions</div>
                             {loadedSession.summary.statements.map((d: string, i: number) => (
                               <div key={i} className="mindmap__leaf">{d}</div>
                             ))}
@@ -529,13 +529,13 @@ function App() {
                       <div className="mindmap">
                         {loadedSession.summary.questions?.length > 0 ? (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">❓ Questions</div>
+                            <div className="mindmap__label">🔍 Unclear Points</div>
                             {loadedSession.summary.questions.map((q: string, i: number) => (
                               <div key={i} className="mindmap__leaf">{q}</div>
                             ))}
                           </div>
                         ) : (
-                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No questions recorded</p>
+                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No unclear points recorded</p>
                         )}
                       </div>
                     </div>
@@ -681,7 +681,7 @@ function App() {
                       <div className="mindmap">
                         {summary.statements?.length > 0 ? (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">💬 Statements & Facts</div>
+                            <div className="mindmap__label">💬 Statements, Facts & Questions</div>
                             {summary.statements.map((d: string, i: number) => (
                               <div key={i} className="mindmap__leaf">{d}</div>
                             ))}
@@ -696,14 +696,14 @@ function App() {
                       <div className="mindmap">
                         {summary.questions?.length > 0 && (
                           <div className="mindmap__branch">
-                            <div className="mindmap__label">❓ Questions</div>
+                            <div className="mindmap__label">🔍 Unclear Points</div>
                             {summary.questions.map((q: string, i: number) => (
                               <div key={i} className="mindmap__leaf">{q}</div>
                             ))}
                           </div>
                         )}
                         {summary.questions?.length === 0 && (
-                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No questions yet...</p>
+                          <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No unclear points yet...</p>
                         )}
                       </div>
                       <div ref={summaryEndRef} />
