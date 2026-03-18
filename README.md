@@ -1,5 +1,8 @@
 # 🧠 GodEye — AI Meeting Intelligence
 
+<img width="2441" height="741" alt="image" src="https://github.com/user-attachments/assets/7c4779d1-313f-4ef4-baa6-b4480fdbfaeb" />
+
+
 > Record, transcribe, summarize, and search your meetings with AI — all running locally on your desktop.
 
 ![Electron](https://img.shields.io/badge/Electron-2B2E3A?style=flat&logo=electron&logoColor=9FEAF9)
