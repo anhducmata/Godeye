@@ -139,11 +139,6 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
     <aside className="sidebar">
       <div className="sidebar__header">
         <span className="sidebar__brand sidebar__brand--clickable" onClick={onGoHome}>🧠 MeetSense</span>
-        {currentUser ? (
-          <button className="sidebar__logout" onClick={onLogout}>Sign Out</button>
-        ) : (
-          <button className="sidebar__auth" onClick={onOpenAuth}>Sign In</button>
-        )}
       </div>
 
       <div className="sidebar__sessions">
@@ -191,7 +186,15 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
       <div className="sidebar__footer">
         <button className="sidebar__settings" onClick={onOpenSettings} title="Settings">⚙️</button>
         {tokenCount > 0 && <span className="sidebar__tokens">{formatTokens(tokenCount)}</span>}
-        {currentUser && <span className="sidebar__user-name">{currentUser.display_name || currentUser.email}</span>}
+        <span style={{ flex: 1 }} />
+        {currentUser ? (
+          <>
+            <span className="sidebar__user-name">{currentUser.display_name || currentUser.email}</span>
+            <button className="sidebar__logout" onClick={onLogout}>Sign Out</button>
+          </>
+        ) : (
+          <button className="sidebar__auth" onClick={onOpenAuth}>Sign In</button>
+        )}
       </div>
     </aside>
   )

@@ -192,7 +192,14 @@ export function useCapture() {
               mandatory: { chromeMediaSource: 'desktop', maxWidth: 1, maxHeight: 1, maxFrameRate: 1 }
             }
           })
-          const micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+          const micStream = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true
+            },
+            video: false
+          })
           
           stream = new MediaStream([
             ...sysStream.getAudioTracks(),
