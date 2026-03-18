@@ -101,7 +101,7 @@ export async function saveTranscripts(sessionId: string, transcripts: Omit<Trans
 
 export async function saveSummary(sessionId: string, summary: {
   document_summary: string
-  statements: string[]
+  statements: any[]
   questions: string[]
   follow_ups: any[]
 }): Promise<void> {

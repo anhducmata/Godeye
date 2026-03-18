@@ -16,10 +16,16 @@ export interface FollowUpQuestion {
   answer: string | null
 }
 
+export interface StatementItem {
+  type: 'statement' | 'fact' | 'question'
+  text: string
+  time: string   // elapsed time like '02:15'
+}
+
 export interface SummaryState {
   timestamp: number
   documentSummary: string
-  statements: string[]
+  statements: (string | StatementItem)[]
   questions: string[]
   followUpQuestions: FollowUpQuestion[]
   documentType?: string
@@ -36,6 +42,8 @@ You receive two streams of data:
 Based on these inputs and the previous state, generate an updated summary.
 IMPORTANT: Write your entire response in: {target_language}
 
+The session has been running for {elapsed_time} so far.
+
 PREVIOUS STATE:
 {previous_summary}
 
@@ -48,8 +56,12 @@ RECENT VISUAL NOTES (last 30s):
 Generate a JSON response with EXACTLY this structure:
 {
   "documentSummary": "A concise markdown summary of the session so far. Be PROPORTIONAL — if only a few sentences were said, write a short summary. Use '# Headers' for sections and '- Bullets' for key points. Only include a Mermaid diagram if a process or architecture was actually discussed. Do NOT pad or inflate the summary beyond what was actually discussed.",
-  "statements": ["Key facts or decisions from the discussion — keep each item to 1 sentence"],
-  "questions": ["Questions raised in the RECENT 30s window ONLY"],
+  "statements": [
+    { "type": "statement", "text": "Someone said or claimed something", "time": "02:15" },
+    { "type": "fact", "text": "A verified fact or decision was made", "time": "03:40" },
+    { "type": "question", "text": "A question was asked in the conversation", "time": "04:10" }
+  ],
+  "questions": ["Unclear points or ambiguities from the RECENT 30s window ONLY"],
   "followUpQuestions": [
     {
       "question": "A specific follow-up question relevant to the current topic.",
@@ -62,8 +74,11 @@ Rules:
 - Be CONCISE and PROPORTIONAL. Short transcript = short summary. Do NOT generate 500 words from 2 sentences of input.
 - Reference what was said AND what was shown on screen, but only if relevant.
 - Only create a Mermaid diagram if a logical flow, system, or architecture was ACTUALLY discussed.
-- For 'statements': KEEP all important items from PREVIOUS STATE and append new ones. Do NOT delete old statements.
-- For 'questions': generate ONLY questions from the MOST RECENT 30-second window. Do NOT accumulate old questions.
+- For 'statements': KEEP all important items from PREVIOUS STATE and append new ones. Do NOT delete old statements. Each item MUST have 'type' (statement, fact, or question), 'text' (1 sentence), and 'time' (elapsed timestamp mm:ss).
+  - Use type='statement' for opinions, claims, proposals.
+  - Use type='fact' for verified facts, data points, decisions, conclusions.
+  - Use type='question' for questions asked during the conversation.
+- For 'questions': generate ONLY unclear points or ambiguities from the MOST RECENT 30-second window. Do NOT accumulate old entries.
 - For 'followUpQuestions': up to 3 relevant open questions. If a previous question was answered, keep it with the answer. Drop irrelevant old ones.
 - ALWAYS respond with valid JSON only, no markdown blocks or commentary.`
 
@@ -156,8 +171,15 @@ export class SummaryEngine extends EventEmitter {
     const shouldGenerateDocument = (now - this.lastDocumentSummaryTime) >= 60_000
 
     // Construct the prompt conditionally
+    const earliestEntry = this.buffer.length > 0 ? Math.min(...this.buffer.map(e => e.timestamp)) : now
+    const elapsedSec = Math.round((now - earliestEntry) / 1000)
+    const elapsedMin = Math.floor(elapsedSec / 60).toString().padStart(2, '0')
+    const elapsedSecRem = (elapsedSec % 60).toString().padStart(2, '0')
+    const elapsedTime = `${elapsedMin}:${elapsedSecRem}`
+
     let prompt = SUMMARY_PROMPT
       .replace('{target_language}', this.targetLanguage)
+      .replace('{elapsed_time}', elapsedTime)
       .replace('{previous_summary}', previousSummary)
       .replace('{recent_transcript}', recentTranscripts || '(no recent speech)')
       .replace('{recent_visual}', recentVisual || '(no recent screen changes)')

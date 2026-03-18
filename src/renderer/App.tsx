@@ -516,9 +516,16 @@ function App() {
                         {loadedSession.summary.statements?.length > 0 ? (
                           <div className="mindmap__branch">
                             <div className="mindmap__label">💬 Statements, Facts & Questions</div>
-                            {loadedSession.summary.statements.map((d: string, i: number) => (
-                              <div key={i} className="mindmap__leaf">{d}</div>
-                            ))}
+                            {loadedSession.summary.statements.map((d: any, i: number) => {
+                              const item = typeof d === 'string' ? { type: 'statement', text: d, time: '' } : d
+                              return (
+                                <div key={i} className="mindmap__leaf">
+                                  <span className={`mindmap__badge mindmap__badge--${item.type}`} title={item.type.charAt(0).toUpperCase() + item.type.slice(1)}>{item.type.charAt(0).toUpperCase()}</span>
+                                  {item.time && <span className="mindmap__time">{item.time}</span>}
+                                  <span>{item.text}</span>
+                                </div>
+                              )
+                            })}
                           </div>
                         ) : (
                           <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No statements recorded</p>
@@ -682,9 +689,16 @@ function App() {
                         {summary.statements?.length > 0 ? (
                           <div className="mindmap__branch">
                             <div className="mindmap__label">💬 Statements, Facts & Questions</div>
-                            {summary.statements.map((d: string, i: number) => (
-                              <div key={i} className="mindmap__leaf">{d}</div>
-                            ))}
+                            {summary.statements.map((d: any, i: number) => {
+                              const item = typeof d === 'string' ? { type: 'statement', text: d, time: '' } : d
+                              return (
+                                <div key={i} className="mindmap__leaf">
+                                  <span className={`mindmap__badge mindmap__badge--${item.type}`}>{item.type}</span>
+                                  {item.time && <span className="mindmap__time">{item.time}</span>}
+                                  <span>{item.text}</span>
+                                </div>
+                              )
+                            })}
                           </div>
                         ) : (
                           <p style={{ color: 'var(--text-3)', fontSize: 13, textAlign: 'center' }}>No statements yet...</p>
