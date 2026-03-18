@@ -3,6 +3,8 @@ import { Pool } from 'pg'
 export async function runMigrations(pool: Pool): Promise<void> {
   console.log('[DB] Running migrations...')
 
+  await pool.query(`CREATE EXTENSION IF NOT EXISTS unaccent`)
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS sessions (
       id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
