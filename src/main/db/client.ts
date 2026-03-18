@@ -6,8 +6,13 @@ let pool: Pool | null = null
 export function getPool(): Pool {
   if (!pool) {
     const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/meetsense'
-    pool = new Pool({ connectionString, max: 5 })
-    console.log('[DB] PostgreSQL pool created')
+    const isNeon = connectionString.includes('neon.tech')
+    pool = new Pool({
+      connectionString,
+      max: 5,
+      ssl: isNeon ? { rejectUnauthorized: false } : undefined
+    })
+    console.log(`[DB] PostgreSQL pool created${isNeon ? ' (Neon + SSL)' : ''}`)
   }
   return pool
 }
