@@ -74,11 +74,11 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
     loadSessions()
   }, [])
 
-  // Auto-refresh: 5s when focused, 60s when not
+  // Auto-refresh: 10s when focused, 60s when not
   useEffect(() => {
     const startTimer = () => {
       if (timerRef.current) clearInterval(timerRef.current)
-      const interval = document.hasFocus() ? 5000 : 60000
+      const interval = document.hasFocus() ? 10000 : 60000
       timerRef.current = setInterval(loadSessions, interval)
     }
 

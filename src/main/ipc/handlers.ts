@@ -280,6 +280,14 @@ export function initializeHandlers(window: BrowserWindow) {
         const audioPath = sessionAudioPath
         const sid = currentSessionId
 
+          // Read audio buffer BEFORE post-meeting processing deletes the temp file
+          let audioBuffer: Buffer | null = null
+          try {
+            audioBuffer = fs.readFileSync(audioPath)
+          } catch (err) {
+            console.warn('[IPC] Could not pre-read audio for S3:', err)
+          }
+
         // Run in background — parallel DB+S3+diarize
         processPostMeeting(audioPath, apiKey, summaryEngine).then(async (finalSummary) => {
           if (finalSummary) {
@@ -330,18 +338,13 @@ export function initializeHandlers(window: BrowserWindow) {
             }
           }
 
-          // Upload audio to S3
-          try {
-            const audioBuffer = fs.readFileSync(audioPath)
-            if (audioBuffer.length > 0 && sid) {
-              saveOps.push(
-                uploadSessionAudio(sid, audioBuffer)
-                  .then(key => { if (sid) updateSession(sid, { s3_audio_key: key }) })
-                  .catch(err => console.error('[IPC] S3 upload failed:', err))
-              )
-            }
-          } catch (err) {
-            console.error('[IPC] Failed to read audio for S3:', err)
+          // Upload audio to S3 (using pre-read buffer)
+          if (audioBuffer && audioBuffer.length > 0 && sid) {
+            saveOps.push(
+              uploadSessionAudio(sid, audioBuffer)
+                .then(key => { if (sid) updateSession(sid, { s3_audio_key: key }) })
+                .catch(err => console.error('[IPC] S3 upload failed:', err))
+            )
           }
 
           // Upload to Vector Store for RAG
