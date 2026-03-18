@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useImperativeHandle, forwardRef, useRef } from 'react'
+import { Brain, Settings } from 'lucide-react'
 
 interface Session {
   id: string
@@ -138,7 +139,7 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
   return (
     <aside className="sidebar">
       <div className="sidebar__header">
-        <span className="sidebar__brand sidebar__brand--clickable" onClick={onGoHome}>🧠 MeetSense</span>
+        <span className="sidebar__brand sidebar__brand--clickable" onClick={onGoHome}><Brain size={16} /> MeetSense</span>
       </div>
 
       <div className="sidebar__sessions">
@@ -184,14 +185,13 @@ export const Sidebar = forwardRef<SidebarHandle, SidebarProps>(function Sidebar(
       </div>
 
       <div className="sidebar__footer">
-        <button className="sidebar__settings" onClick={onOpenSettings} title="Settings">⚙️</button>
+        <button className="sidebar__settings" onClick={onOpenSettings} title="Settings"><Settings size={16} /></button>
         {tokenCount > 0 && <span className="sidebar__tokens">{formatTokens(tokenCount)}</span>}
         <span style={{ flex: 1 }} />
         {currentUser ? (
-          <>
-            <span className="sidebar__user-name">{currentUser.display_name || currentUser.email}</span>
-            <button className="sidebar__logout" onClick={onLogout}>Sign Out</button>
-          </>
+          <span className="sidebar__user-name">
+            {currentUser.display_name || currentUser.email} (<button className="sidebar__logout" onClick={onLogout}>sign out</button>)
+          </span>
         ) : (
           <button className="sidebar__auth" onClick={onOpenAuth}>Sign In</button>
         )}

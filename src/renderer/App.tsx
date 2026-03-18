@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm'
 import { MermaidBlock } from './components/MermaidBlock'
 import { Sidebar, SidebarHandle } from './components/Sidebar'
 import { ChatWidget } from './components/ChatWidget'
+import { Mic, Video, Camera, Music, Film, Image, FileText, ClipboardPaste, Square, ChevronDown } from 'lucide-react'
 
 type AppView = 'sessions' | 'recording' | 'viewing' | 'search'
 
@@ -390,34 +391,36 @@ function App() {
               )}
               <div className="btn-split">
                 <button className="btn-split__main" onClick={handleNewSession}>
-                  {newSessionType === 'record-audio' && '🎙️ Record Audio'}
-                  {newSessionType === 'upload-image' && '🖼️ Upload Image'}
-                  {newSessionType === 'upload-audio' && '🎵 Upload Audio'}
-                  {newSessionType === 'upload-video' && '🎬 Upload Video'}
-                  {newSessionType === 'record-video' && '📹 Record Video'}
-                  {newSessionType === 'upload-text' && '📄 Upload Text'}
-                  {newSessionType === 'paste-memory' && '📋 Paste Memory'}
+                  {newSessionType === 'record-audio' && <><Mic size={14} /> Record Audio</>}
+                  {newSessionType === 'upload-image' && <><Image size={14} /> Upload Image</>}
+                  {newSessionType === 'upload-audio' && <><Music size={14} /> Upload Audio</>}
+                  {newSessionType === 'upload-video' && <><Film size={14} /> Upload Video</>}
+                  {newSessionType === 'record-video' && <><Video size={14} /> Record Video</>}
+                  {newSessionType === 'take-picture' && <><Camera size={14} /> Take Picture</>}
+                  {newSessionType === 'upload-text' && <><FileText size={14} /> Upload Text</>}
+                  {newSessionType === 'paste-memory' && <><ClipboardPaste size={14} /> Paste Memory</>}
                 </button>
                 <button className="btn-split__toggle" onClick={(e) => { e.stopPropagation(); setShowNewDropdown(!showNewDropdown) }}>
-                  ▾
+                  <ChevronDown size={14} />
                 </button>
                 {showNewDropdown && (
                   <div className="btn-split__dropdown">
                     {[
-                      { id: 'record-audio', icon: '🎙️', label: 'Record Audio' },
-                      { id: 'record-video', icon: '📹', label: 'Record Video' },
-                      { id: 'upload-image', icon: '🖼️', label: 'Upload Image' },
-                      { id: 'upload-audio', icon: '🎵', label: 'Upload Audio' },
-                      { id: 'upload-video', icon: '🎬', label: 'Upload Video' },
-                      { id: 'upload-text', icon: '📄', label: 'Upload Text' },
-                      { id: 'paste-memory', icon: '📋', label: 'Paste Memory' },
+                      { id: 'record-audio', icon: Mic, label: 'Record Audio' },
+                      { id: 'record-video', icon: Video, label: 'Record Video' },
+                      { id: 'take-picture', icon: Camera, label: 'Take Picture' },
+                      { id: 'upload-audio', icon: Music, label: 'Upload Audio' },
+                      { id: 'upload-video', icon: Film, label: 'Upload Video' },
+                      { id: 'upload-image', icon: Image, label: 'Upload Image' },
+                      { id: 'upload-text', icon: FileText, label: 'Upload Text' },
+                      { id: 'paste-memory', icon: ClipboardPaste, label: 'Paste Memory' },
                     ].map(opt => (
                       <button
                         key={opt.id}
                         className={`btn-split__option ${newSessionType === opt.id ? 'btn-split__option--active' : ''}`}
                         onClick={() => { setNewSessionType(opt.id); setShowNewDropdown(false) }}
                       >
-                        <span>{opt.icon}</span> {opt.label}
+                        <opt.icon size={14} /> {opt.label}
                       </button>
                     ))}
                   </div>
@@ -933,8 +936,8 @@ function App() {
               </div>
               {!showDebug && (
                 <div className="col__foot">
-                  <button className="btn btn--sm" onClick={() => window.meetsense?.exportMarkdown()}>📄 Export MD</button>
-                  <button className="btn btn--sm" onClick={() => window.meetsense?.exportJSON()}>📋 Export JSON</button>
+                  <button className="btn btn--sm" onClick={() => window.meetsense?.exportMarkdown()}><FileText size={12} /> Export MD</button>
+                  <button className="btn btn--sm" onClick={() => window.meetsense?.exportJSON()}><ClipboardPaste size={12} /> Export JSON</button>
                 </div>
               )}
             </section>
