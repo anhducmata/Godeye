@@ -263,7 +263,16 @@ export function initializeHandlers(window: BrowserWindow) {
       console.log('[IPC] WebM recording finalized at:', sessionAudioPath)
       
       const apiKey = process.env.OPENAI_API_KEY || ''
-      if (apiKey && sessionAudioPath) {
+      const durationSec = Math.floor((Date.now() - sessionStartTime) / 1000)
+
+      // Skip post-processing for recordings shorter than 30 seconds
+      if (durationSec < 30) {
+        console.log(`[IPC] Recording too short (${durationSec}s < 30s) — skipping save and summary`)
+        if (currentSessionId) {
+          await deleteSession(currentSessionId).catch(() => {})
+        }
+        safeSend('post-meeting-status', { processing: false })
+      } else if (apiKey && sessionAudioPath) {
         // Notify renderer that post-meeting processing is starting
         safeSend('post-meeting-status', { processing: true })
 
@@ -371,15 +380,13 @@ export function initializeHandlers(window: BrowserWindow) {
                 max_tokens: 100,
                 messages: [{
                   role: 'user',
-                  content: `Based on this meeting summary, generate:
-1. A concise title (3-6 words) describing the main topic
-2. Exactly 3 relevant hashtag keywords (single words, no #)
+                  content: `Based on this meeting summary, generate a concise title (3-6 words) describing the main topic.
 
 Summary:
 ${contextText}
 
 Respond in this exact JSON format:
-{"title": "...", "tags": ["word1", "word2", "word3"]}`
+{"title": "..."}`
                 }],
                 response_format: { type: 'json_object' }
               })
@@ -388,16 +395,6 @@ Respond in this exact JSON format:
               if (parsed.title) {
                 await updateSession(sid, { title: parsed.title } as any)
                 console.log(`[IPC] Auto-title set: "${parsed.title}"`)
-              }
-              if (parsed.tags && Array.isArray(parsed.tags)) {
-                const TAG_COLORS = ['#6366f1', '#06b6d4', '#22c55e', '#f59e0b', '#ef4444', '#ec4899']
-                for (let i = 0; i < Math.min(parsed.tags.length, 3); i++) {
-                  const tagName = String(parsed.tags[i]).toLowerCase().trim()
-                  if (!tagName) continue
-                  const tag = await createTag(tagName, TAG_COLORS[i % TAG_COLORS.length])
-                  await tagSession(sid, tag.id)
-                }
-                console.log(`[IPC] Auto-tags set: ${parsed.tags.join(', ')}`)
               }
             } catch (err) {
               console.error('[IPC] Auto title/tag generation failed:', err)

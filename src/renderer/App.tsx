@@ -340,7 +340,7 @@ function App() {
                   {newSessionType === 'upload-text' && '📄 Upload Text'}
                   {newSessionType === 'paste-memory' && '📋 Paste Memory'}
                 </button>
-                <button className="btn-split__toggle" onClick={() => setShowNewDropdown(!showNewDropdown)}>
+                <button className="btn-split__toggle" onClick={(e) => { e.stopPropagation(); setShowNewDropdown(!showNewDropdown) }}>
                   ▾
                 </button>
                 {showNewDropdown && (
